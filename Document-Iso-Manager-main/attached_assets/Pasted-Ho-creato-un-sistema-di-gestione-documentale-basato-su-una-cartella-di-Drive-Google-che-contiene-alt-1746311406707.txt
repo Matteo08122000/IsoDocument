@@ -1,0 +1,34 @@
+Ho creato un sistema di gestione documentale basato su una cartella di Drive Google che contiene
+altre sottocartelle tipo 1, 1.1, 1.2, 1.2.1 ecc. . All’interno della cartella principale c’è un foglio Excel sul
+quale ho ordinato manualmente con ordine crescente, in base alle norme ISO, tutti i documenti
+richiesti dalla norma ISO dal punto 1 al punto 10 sempre rispettando la possibilità che, i sottopunti
+norma, possano arrivare ad un max di 10.10.10. Ho creato dei link per aprirli direttamente da questo
+foglio principale. Tutta la documentazione è composta da file word, excel, pdf e immagini. Al fine di
+rendere facile la navigazione da un file all’altro, senza cercare in gestione risorse, i file principale,
+secondo le esigenze, è collegato con link ai documenti citati nel testo. La particolarità di questo
+sistema è che mi consente da un documento principale di navigare in tutto il sistema. L’altro elemento
+fondamentale è che il file Excel principale è anche collegato ad altri file excel. Questi attraverso
+formule previste nel sistema Excel, calcolano una scadenza ad esempio una attività è da rinnovare
+entro 1 anno a partire da oggi 28/4/2025, quindi la scadenza sarebbe 28/4/2026 ma, per preparare la
+documentazione necessaria, ho bisogno di essere avvisato almeno 30 gg prima, quindi il 28/3/2026 in
+una cella standard uguale per qualsiasi foglio modello di calcolo scadenze, presentano l’alert in una
+cella predefinita è standard esempio sempre nella cella A1 di qualsiasi foglio Excel che possa
+contenere il countdown.
+Voglio realizzare un programma accessibile da un indirizzo web con nome utente, password e
+controllo a due fattori per evitare hackeraggi:
+• Apro un account generale in workspace che mi consente di creare un drive
+• Scarico GoogleDriveSetup.exe e gestisco in esplora risorse una cartella principale di Drive
+Google dove effettuo il download di file che rispettano un precisa regola: punto norma-
+nomefile-Rev.x-data di creazione
+• Il programma, in base ai file che trova nella cartella costruisce nella home un indice dei file
+ordinato per punti norma. Preciso che al momento le norme ISO hanno al massimo 10 punti
+principali che si espandono in sotto punti composti al massimo da xx.yy.zz tipo 8.1, 8.2, 8.2.1,
+… 8.5.1 …8.5.6, 8.6, 8.7. allo stato non esistono punti che vanno oltre il 10.10.10 (8 bit)
+• A parità di nome il programma deve presentare solo il file con la revisione maggiore e
+archiviare in una cartella che chiameremo OLD tutti i file che hanno una rev. Inferiore.
+• Il programma deve costruire autonomamente un link al file che inserisce nell’indice così da
+aprirlo con un click e proporre con il simbolo penna la possibilità di modifica o il cestino per
+eliminarlo archiviandolo in OLD.
+• Il programma deve leggere tutti i file Excel che nella cella A1 presentano un alert e inserire a
+fianco del nome in indice un simbolo tipo un triangolo giallo per quelli in scadenza e se la
+scadenza è stata erroneamente superata UN DISCO ROSSO.

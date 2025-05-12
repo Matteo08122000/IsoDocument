@@ -1,0 +1,50 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "cross-env NODE_ENV=development tsx index.ts",
+    "build": "esbuild index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "NODE_ENV=production node dist/index.js",
+    "check-env": "tsx verify-env.ts",
+    "check": "tsc"
+  },
+  "dependencies": {
+    "@types/mongodb": "^4.0.6",
+    "bcrypt": "^5.1.1",
+    "connect-mongodb-session": "^5.0.0",
+    "date-fns": "^3.6.0",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "express-session": "^1.18.1",
+    "googleapis": "^105.0.0",
+    "helmet": "^8.1.0",
+    "memorystore": "^1.6.7",
+    "mongodb": "^6.16.0",
+    "mongoose": "^8.14.1",
+    "nodemailer": "^6.10.1",
+    "otplib": "^12.0.1",
+    "passport": "^0.7.0",
+    "passport-local": "^1.0.0",
+    "ts-node": "^10.9.2",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.0",
+    "xlsx": "^0.18.5",
+    "zod": "^3.24.4"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/express-session": "^1.18.0",
+    "@types/node": "^20.16.11",
+    "@types/nodemailer": "^6.4.17",
+    "@types/passport": "^1.0.16",
+    "@types/passport-local": "^1.0.38",
+    "@types/ws": "^8.5.13",
+    "cross-env": "^7.0.3",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

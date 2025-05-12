@@ -1,0 +1,196 @@
+{
+  "users": [
+    {
+      "_id": "681629503e1154e18fc0483b",
+      "email": "admin@example.com",
+      "password": "$2b$10$EpRnTzVlqHNP0.fUbXUwSOyuiXe/QLSUG6xNekdHgTGmrpHEfIoxm",
+      "role": "admin",
+      "lastLogin": null,
+      "sessionExpiry": null,
+      "createdAt": "2025-05-03T14:33:52.802Z",
+      "legacyId": 3,
+      "__v": 0
+    },
+    {
+      "_id": "68162a5ee8f93457bc82ec92",
+      "email": "test@example.com",
+      "password": "6a4872536ffc2536e218772f36e5cd71bb2019a4ff53cb65e335341c7e8adcf2c0a16d3759d363c98baf0e82b7ca03aeee9692f7b55d8ed4dc56baa3570e2005.2c984e267e6bfa80affa1e044444c73c",
+      "role": "viewer",
+      "lastLogin": "2025-05-03T14:38:28.877Z",
+      "sessionExpiry": "2025-05-03T15:08:28.877Z",
+      "createdAt": "2025-05-03T14:38:22.484Z",
+      "legacyId": 4,
+      "__v": 0
+    },
+    {
+      "_id": "681631300e8104d01b31c118",
+      "email": "teonicolas33@gmail.com",
+      "password": "e35267be14421597e66f3813c55ca3a478e7f794a637f0ce378a85c9ffe15b310084316922b0c982c7f3cdfe369aeb94646b1cd4342efe26202ea36775482285.e26a26a7a7dddea488201d2fbc33ac73",
+      "role": "admin",
+      "lastLogin": "2025-05-03T15:07:28.601Z",
+      "sessionExpiry": "2025-05-03T15:37:28.558Z",
+      "createdAt": "2025-05-03T15:07:28.731Z",
+      "legacyId": 5,
+      "__v": 0
+    },
+    {
+      "_id": "6816339b7be75f031ac483d2",
+      "email": "test2@example.com",
+      "password": "9e93dd07931acc4f7929f8d191376f63d823def7d4a46159ee9481fcaee4fd7c57c5897eceb0e9bc303df6cb79235a9200f536d9513109ba47b9dba5d6ddd630.bfcdcbce992c12cef59e75cc7fefe529",
+      "role": "viewer",
+      "lastLogin": "2025-05-03T15:17:55.105Z",
+      "sessionExpiry": "2025-05-03T15:47:55.105Z",
+      "createdAt": "2025-05-03T15:17:47.965Z",
+      "legacyId": 6,
+      "__v": 0
+    },
+    {
+      "_id": "681633d53e3ffa273486f5c0",
+      "email": "admin2@example.com",
+      "password": "9b18fc550856bae3c9c4711f868282b666e866eb68147602bfe4c31e018197159c0c489ac50b18923d44836c1e535e8dbc258694aae47e62017d56ae96fbcf50.a54618328227120725cb4ffa1615e1f1",
+      "role": "viewer",
+      "lastLogin": "2025-05-03T15:18:45.734Z",
+      "sessionExpiry": "2025-05-03T15:48:45.680Z",
+      "createdAt": "2025-05-03T15:18:45.852Z",
+      "legacyId": 7,
+      "__v": 0
+    },
+    {
+      "_id": "681633ef60f64cb9faf88d27",
+      "email": "admin3@example.com",
+      "password": "f404457d1b695c3c221a82581d426cb90422b4de9129015e9f23635137d64c4150ce1923b9f6d1bfa1c5f49880da5c1d9956b6ab880145e7390a6fd7777514c8.835ba79a025161f6a3ab0a41fa17afac",
+      "role": "admin",
+      "lastLogin": "2025-05-03T15:19:11.778Z",
+      "sessionExpiry": "2025-05-03T15:49:11.737Z",
+      "createdAt": "2025-05-03T15:19:11.896Z",
+      "legacyId": 8,
+      "__v": 0
+    }
+  ],
+  "documents": [],
+  "logs": [
+    {
+      "_id": "68162a5ee8f93457bc82ec95",
+      "userId": 4,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User registered",
+        "timestamp": "2025-05-03T14:38:22.606Z"
+      },
+      "timestamp": "2025-05-03T14:38:22.722Z",
+      "legacyId": 1,
+      "__v": 0
+    },
+    {
+      "_id": "68162a65e8f93457bc82ec9a",
+      "userId": 4,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User logged in",
+        "timestamp": "2025-05-03T14:38:28.877Z",
+        "ipAddress": "127.0.0.1"
+      },
+      "timestamp": "2025-05-03T14:38:29.106Z",
+      "legacyId": 2,
+      "__v": 0
+    },
+    {
+      "_id": "68162a72e8f93457bc82ec9f",
+      "userId": 4,
+      "action": "logout",
+      "documentId": null,
+      "details": {
+        "message": "User logged out",
+        "timestamp": "2025-05-03T14:38:42.220Z",
+        "ipAddress": "127.0.0.1"
+      },
+      "timestamp": "2025-05-03T14:38:42.333Z",
+      "legacyId": 3,
+      "__v": 0
+    },
+    {
+      "_id": "681631300e8104d01b31c11b",
+      "userId": 5,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User registered",
+        "timestamp": "2025-05-03T15:07:28.853Z"
+      },
+      "timestamp": "2025-05-03T15:07:28.967Z",
+      "legacyId": 4,
+      "__v": 0
+    },
+    {
+      "_id": "6816317c0e8104d01b31c121",
+      "userId": 5,
+      "action": "logout",
+      "documentId": null,
+      "details": {
+        "message": "User logged out",
+        "timestamp": "2025-05-03T15:08:44.044Z",
+        "ipAddress": "10.81.0.59"
+      },
+      "timestamp": "2025-05-03T15:08:44.159Z",
+      "legacyId": 5,
+      "__v": 0
+    },
+    {
+      "_id": "6816339c7be75f031ac483d5",
+      "userId": 6,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User registered",
+        "timestamp": "2025-05-03T15:17:48.087Z"
+      },
+      "timestamp": "2025-05-03T15:17:48.202Z",
+      "legacyId": 6,
+      "__v": 0
+    },
+    {
+      "_id": "681633a37be75f031ac483da",
+      "userId": 6,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User logged in",
+        "timestamp": "2025-05-03T15:17:55.105Z",
+        "ipAddress": "127.0.0.1"
+      },
+      "timestamp": "2025-05-03T15:17:55.339Z",
+      "legacyId": 7,
+      "__v": 0
+    },
+    {
+      "_id": "681633d63e3ffa273486f5c3",
+      "userId": 7,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User registered",
+        "timestamp": "2025-05-03T15:18:45.975Z"
+      },
+      "timestamp": "2025-05-03T15:18:46.088Z",
+      "legacyId": 8,
+      "__v": 0
+    },
+    {
+      "_id": "681633f060f64cb9faf88d2a",
+      "userId": 8,
+      "action": "login",
+      "documentId": null,
+      "details": {
+        "message": "User registered",
+        "timestamp": "2025-05-03T15:19:12.018Z"
+      },
+      "timestamp": "2025-05-03T15:19:12.131Z",
+      "legacyId": 9,
+      "__v": 0
+    }
+  ],
+  "timestamp": "2025-05-03T15:19:28.070Z",
+  "version": "1.0"
+}
