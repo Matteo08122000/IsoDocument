@@ -39,7 +39,25 @@ export default function DocumentTable({
   isAdmin,
   pageSize = 10,
 }: DocumentTableProps) {
+  console.log("📊 [TABLE] Inizializzazione tabella documenti");
+  console.log("📄 [TABLE] Documenti ricevuti:", {
+    count: documents.length,
+    isEmpty: documents.length === 0,
+    isAdmin: isAdmin,
+  });
+
+  if (documents.length === 0) {
+    console.log("⚠️ [TABLE] Nessun documento disponibile");
+  } else {
+    console.log("📄 [TABLE] Primo documento:", documents[0]);
+  }
+
   const [currentPage, setCurrentPage] = useState(1);
+  console.log("📄 [TABLE] Stato paginazione:", {
+    currentPage,
+    totalPages: Math.ceil(documents.length / pageSize),
+    pageSize,
+  });
 
   // Calculate total pages
   const totalPages = Math.ceil(documents.length / pageSize);
@@ -49,16 +67,23 @@ export default function DocumentTable({
     (currentPage - 1) * pageSize,
     currentPage * pageSize
   );
+  console.log("📄 [TABLE] Documenti pagina corrente:", {
+    count: currentDocuments.length,
+    start: (currentPage - 1) * pageSize,
+    end: currentPage * pageSize,
+  });
 
   // Handle page changes
   const goToNextPage = () => {
     if (currentPage < totalPages) {
+      console.log("➡️ Passaggio alla pagina successiva:", currentPage + 1);
       setCurrentPage(currentPage + 1);
     }
   };
 
   const goToPreviousPage = () => {
     if (currentPage > 1) {
+      console.log("⬅️ Passaggio alla pagina precedente:", currentPage - 1);
       setCurrentPage(currentPage - 1);
     }
   };

@@ -32,9 +32,11 @@ import {
 import path from "path";
 import fs from "fs";
 import { promisify } from "util";
-import createMemoryStore from "memorystore";
+
 import session from "express-session";
 import connectMongo from "connect-mongodb-session";
+import dotenv from "dotenv";
+dotenv.config();
 
 const MongoStore = connectMongo(session);
 
@@ -53,17 +55,27 @@ export class MongoStorage implements IStorage {
     this.ensureAdminUser();
   }
 
-  private async connect() {
+  public async connect(): Promise<void> {
+    if (this.connected) return;
+
     if (!process.env.DB_URI) {
-      throw new Error("MongoDB connection string not provided");
+      throw new Error("❌ DB_URI non configurata nel file .env");
     }
 
     try {
-      await mongoose.connect(process.env.DB_URI);
-      console.log("Connected to MongoDB");
+      // Codifica la stringa di connessione per gestire caratteri speciali
+      const connectionString = process.env.DB_URI;
+      console.log("🔌 Tentativo di connessione a MongoDB...");
+
+      await mongoose.connect(connectionString, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+      });
+
       this.connected = true;
+      console.log("✅ Connesso a MongoDB");
     } catch (error) {
-      console.error("MongoDB connection error:", error);
+      console.error("❌ Errore connessione MongoDB:", error);
       throw error;
     }
   }
@@ -111,7 +123,7 @@ export class MongoStorage implements IStorage {
       );
       if (admin) {
         await this.createLog({
-          userId: admin.id,
+          userId: admin.legacyId,
           action: "system_init",
           details: {
             message: "Default admin user created",
@@ -127,7 +139,7 @@ export class MongoStorage implements IStorage {
   // Convert document IDs between systems (MongoDB uses string _id, our API expects numeric id)
   private convertToApiUser(user: any): User {
     return {
-      id: user.legacyId,
+      legacyId: user.legacyId,
       email: user.email,
       password: user.password,
       role: user.role,
@@ -140,7 +152,7 @@ export class MongoStorage implements IStorage {
 
   private convertToApiDocument(doc: any): Document {
     return {
-      id: doc.legacyId,
+      legacyId: doc.legacyId,
       title: doc.title,
       path: doc.path,
       revision: doc.revision,
@@ -162,7 +174,7 @@ export class MongoStorage implements IStorage {
 
   private convertToApiLog(log: any): Log {
     return {
-      id: log.id || log.legacyId,
+      legacyId: log.legacyId || log.legacyId,
       userId: log.userId,
       action: log.action,
       documentId: log.documentId,
@@ -311,6 +323,7 @@ export class MongoStorage implements IStorage {
       driveFolderId: client.driveFolderId,
       createdAt: client.createdAt,
       updatedAt: client.updatedAt,
+      google: client.google || undefined,
     };
   }
 
@@ -335,20 +348,71 @@ export class MongoStorage implements IStorage {
   }
 
   async createClient(client: InsertClient): Promise<Client> {
+    if (!this.connected) {
+      throw new Error("Database non connesso");
+    }
+
     try {
+      console.log(
+        "Inizio creazione client con dati:",
+        JSON.stringify(client, null, 2)
+      );
+
       // Use auto-incrementing sequence for ID
       const legacyId = await getNextSequence("clientId");
+      console.log("Generato legacyId:", legacyId);
+
+      // Validazione dei dati
+      if (!client.name || !client.driveFolderId) {
+        console.error("Validazione fallita:", {
+          name: client.name,
+          driveFolderId: client.driveFolderId,
+        });
+        throw new Error("Nome e ID cartella Drive sono obbligatori");
+      }
+
+      // Verifica se esiste già un client con lo stesso nome
+      const existingClient = await ClientModel.findOne({ name: client.name });
+      if (existingClient) {
+        throw new Error(`Esiste già un client con il nome "${client.name}"`);
+      }
+
       const newClient = new ClientModel({
         ...client,
+        id: legacyId,
         legacyId,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
-      await newClient.save();
-      return this.convertToApiClient(newClient);
+      console.log(
+        "Creato nuovo client model:",
+        JSON.stringify(newClient, null, 2)
+      );
+
+      const savedClient = await newClient.save();
+      console.log(
+        "Client salvato con successo:",
+        JSON.stringify(savedClient, null, 2)
+      );
+
+      if (!savedClient) {
+        throw new Error("Errore durante il salvataggio del client");
+      }
+
+      const convertedClient = this.convertToApiClient(savedClient);
+      console.log(
+        "Client convertito:",
+        JSON.stringify(convertedClient, null, 2)
+      );
+
+      return convertedClient;
     } catch (error) {
       console.error("MongoDB createClient error:", error);
-      throw error;
+      if (error instanceof Error) {
+        console.error("Stack trace:", error.stack);
+        throw new Error(`Errore nella creazione del client: ${error.message}`);
+      }
+      throw new Error("Errore sconosciuto nella creazione del client");
     }
   }
 
@@ -358,6 +422,28 @@ export class MongoStorage implements IStorage {
       return clients.map((client) => this.convertToApiClient(client));
     } catch (error) {
       console.error("MongoDB getAllClients error:", error);
+      return [];
+    }
+  }
+
+  async getClientsByAdminId(adminId: number): Promise<Client[]> {
+    try {
+      // Ottieni l'admin
+      const admin = await UserModel.findOne({ legacyId: adminId }).exec();
+      if (!admin) return [];
+
+      // Se l'admin ha un clientId, restituisci solo quel cliente
+      if (admin.clientId) {
+        const client = await ClientModel.findOne({
+          legacyId: admin.clientId,
+        }).exec();
+        return client ? [this.convertToApiClient(client)] : [];
+      }
+
+      // Se l'admin non ha clientId, non restituire nulla
+      return [];
+    } catch (error) {
+      console.error("MongoDB getClientsByAdminId error:", error);
       return [];
     }
   }
@@ -426,9 +512,15 @@ export class MongoStorage implements IStorage {
   }
 
   // Document methods
-  async getAllDocuments(): Promise<Document[]> {
+  async getAllDocuments(clientId?: number): Promise<Document[]> {
     try {
-      const documents = await DocumentModel.find({ isObsolete: false }).exec();
+      // Costruisci la query in base al clientId
+      const query: any = { isObsolete: false };
+      if (clientId) {
+        query.clientId = clientId;
+      }
+
+      const documents = await DocumentModel.find(query).exec();
       const result = documents.map((doc) => this.convertToApiDocument(doc));
 
       // Sort by ISO path (e.g., "1.2.3")
@@ -500,12 +592,56 @@ export class MongoStorage implements IStorage {
     }
   }
 
+  // mongo-storage.ts
+  async getDocumentsByClientId(clientId: number): Promise<Document[]> {
+    try {
+      const documents = await DocumentModel.find({
+        clientId: clientId,
+        isObsolete: false,
+      }).exec();
+
+      const result = documents.map((doc) => this.convertToApiDocument(doc));
+
+      // Ordina i documenti per path in ordine crescente
+      return result.sort((a, b) => {
+        const aParts = a.path.split(".").map(Number);
+        const bParts = b.path.split(".").map(Number);
+
+        for (let i = 0; i < Math.min(aParts.length, bParts.length); i++) {
+          if (aParts[i] !== bParts[i]) {
+            return aParts[i] - bParts[i];
+          }
+        }
+
+        return aParts.length - bParts.length;
+      });
+    } catch (error) {
+      console.error("MongoDB getDocumentsByClientId error:", error);
+      return [];
+    }
+  }
+
+  // mongo-storage.ts
+  async getObsoleteDocumentsByClientId(clientId: number): Promise<Document[]> {
+    try {
+      const docs = await DocumentModel.find({
+        clientId,
+        isObsolete: true,
+      }).exec();
+      return docs.map((doc) => this.convertToApiDocument(doc));
+    } catch (err) {
+      console.error("getObsoleteDocumentsByClientId error:", err);
+      return [];
+    }
+  }
+
   async createDocument(insertDocument: InsertDocument): Promise<Document> {
     try {
       // Use auto-incrementing sequence for ID
       const legacyId = await getNextSequence("documentId");
       const document = new DocumentModel({
         ...insertDocument,
+        id: legacyId,
         legacyId, // ID numerico per compatibilità API
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -714,7 +850,7 @@ export class MongoStorage implements IStorage {
     // Controllo pattern del nome file (se segue standard ISO)
     const filename = path.basename(filePath);
     const isoPattern =
-      /^\d+(\.\d+)*_[\w\s]+_Rev\.\d+_\d{4}-\d{2}-\d{2}\.[a-zA-Z]+$/;
+      /^\d+(?:\.\d+)*_[\p{L}\p{N} .,'’()-]+_Rev\.\d+_\d{4}-\d{2}-\d{2}\.[a-zA-Z]+$/u;
 
     if (!isoPattern.test(filename)) {
       errors.push(
@@ -855,7 +991,7 @@ export class MongoStorage implements IStorage {
 
   private convertToApiCompanyCode(companyCode: any): CompanyCode {
     return {
-      id: companyCode.legacyId,
+      legacyId: companyCode.legacyId,
       code: companyCode.code,
       role: companyCode.role,
       usageLimit: companyCode.usageLimit,
@@ -880,6 +1016,7 @@ export class MongoStorage implements IStorage {
 
       const newCompanyCode = new CompanyCodeModel({
         ...companyCode,
+        id: legacyId,
         usageCount: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -1045,6 +1182,74 @@ export class MongoStorage implements IStorage {
     } catch (error) {
       console.error("MongoDB incrementCompanyCodeUsage error:", error);
       throw error;
+    }
+  }
+
+  async fixDocumentsClientId(): Promise<void> {
+    try {
+      console.log("🔄 Inizio correzione clientId per i documenti");
+
+      // Recupera tutti i documenti senza clientId
+      const documents = await DocumentModel.find({
+        clientId: { $exists: false },
+      });
+      console.log(`📄 Trovati ${documents.length} documenti da correggere`);
+
+      for (const doc of documents) {
+        // Recupera l'utente owner del documento
+        const owner = await UserModel.findOne({ legacyId: doc.ownerId });
+        if (owner && owner.clientId) {
+          // Aggiorna il documento con il clientId dell'owner
+          await DocumentModel.updateOne(
+            { legacyId: doc.legacyId },
+            { $set: { clientId: owner.clientId } }
+          );
+          console.log(
+            `✅ Documento ${doc.legacyId} aggiornato con clientId ${owner.clientId}`
+          );
+        } else {
+          console.warn(
+            `⚠️ Impossibile trovare l'owner o il clientId per il documento ${doc.legacyId}`
+          );
+        }
+      }
+
+      console.log("✅ Correzione clientId completata");
+    } catch (error) {
+      console.error("❌ Errore durante la correzione dei clientId:", error);
+    }
+  }
+
+  // Get users by clientId
+  async getUsersByClientId(clientId: number): Promise<User[]> {
+    try {
+      const users = await UserModel.find({ clientId }).exec();
+      return users.map((user) => this.convertToApiUser(user));
+    } catch (error) {
+      console.error("MongoDB getUsersByClientId error:", error);
+      return [];
+    }
+  }
+
+  // Get logs by clientId
+  async getLogsByClientId(clientId: number): Promise<Log[]> {
+    try {
+      // Prima otteniamo tutti i documenti del client
+      const documents = await DocumentModel.find({ clientId }).exec();
+      const documentIds = documents.map((doc) => doc.legacyId);
+
+      // Poi otteniamo tutti i log relativi a questi documenti
+      const logs = await LogModel.find({
+        $or: [
+          { documentId: { $in: documentIds } },
+          { "details.clientId": clientId },
+        ],
+      }).exec();
+
+      return logs.map((log) => this.convertToApiLog(log));
+    } catch (error) {
+      console.error("MongoDB getLogsByClientId error:", error);
+      return [];
     }
   }
 }

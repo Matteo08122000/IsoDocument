@@ -6,7 +6,7 @@ import {
 } from "../shared-types/schema";
 import path from "path";
 import fs from "fs";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx";
 import os from "os";
 import { v4 as uuidv4 } from "uuid";
 import { mongoStorage } from "../server/mongo-storage";
@@ -39,7 +39,7 @@ export function extractFolderIdFromUrl(input: string): string | null {
 }
 
 const fileNamePattern =
-  /^(\d+(?:\.\d+)*)[_-](.+?)[_-]Rev\.(\d+)[_-](\d{4}-\d{2}-\d{2})\.(.+)$/u;
+  /^(\d+(?:\.\d+)*)_([\p{L}\p{N} .,'’()-]+?)_Rev\.(\d+)_([0-9]{4}-[0-9]{2}-[0-9]{2})\.(\w+)$/u;
 
 export function parseISOPath(filePath: string): string | null {
   const match = filePath.match(fileNamePattern);
@@ -48,7 +48,7 @@ export function parseISOPath(filePath: string): string | null {
 
 export function parseTitle(filePath: string): string | null {
   const match = filePath.match(fileNamePattern);
-  return match ? match[2].replace(/-/g, " ").trim() : null;
+  return match ? match[2].trim() : null;
 }
 
 export function parseRevision(filePath: string): string | null {
@@ -66,38 +66,102 @@ export function parseFileType(filePath: string): string | null {
   return match ? match[5].toLowerCase() : null;
 }
 
-export async function checkExcelAlertStatus(filePath: string): Promise<string> {
-  try {
-    if (!filePath.toLowerCase().endsWith(".xlsx")) return "none";
-    const workbook = XLSX.readFile(filePath);
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const cellA1 = sheet["A1"];
-    if (!cellA1 || !cellA1.v) return "none";
-    const value = String(cellA1.v).trim();
-    if (value.includes("🔴")) return "expired";
-    if (value.includes("⚠️")) return "warning";
-    const dateMatch = value.match(/(\d{2})-(\d{2})-(\d{4})/);
-    if (dateMatch) {
-      const [_, dd, mm, yyyy] = dateMatch;
-      const expiryDate = new Date(`${yyyy}-${mm}-${dd}`);
-      const today = new Date();
-      if (expiryDate < today) return "expired";
-      const daysLeft = Math.floor(
-        (expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      if (daysLeft <= 30) return "warning";
-      return "none";
-    }
-    return "none";
-  } catch (error) {
-    console.error(`Errore checkExcelAlertStatus: ${error}`);
-    return "none";
-  }
+type Alert = "none" | "warning" | "expired";
+interface ExcelAnalysis {
+  alertStatus: Alert;
+  expiryDate: Date | null;
 }
 
+// ✅ FUNZIONE AGGIORNATA: Analizza il contenuto Excel per estrarre data di scadenza e status
+export async function analyzeExcelContent(
+  filePath: string
+): Promise<ExcelAnalysis> {
+  // accettiamo solo .xlsx
+  if (!filePath.toLowerCase().endsWith(".xlsx")) {
+    return { alertStatus: "none", expiryDate: null };
+  }
+
+  // 1️⃣ carica il workbook chiedendo Date reali
+  const workbook = XLSX.readFile(filePath, { cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  if (!sheet) return { alertStatus: "none", expiryDate: null };
+
+  // celle da scandagliare
+  const cellsToCheck = ["A1", "B1", "C1", "A2", "B2", "C2"];
+
+  let expiryDate: Date | null = null;
+  let alertStatus: Alert = "none";
+
+  // 2️⃣ cerca la data
+  for (const ref of cellsToCheck) {
+    const cell = sheet[ref];
+    if (!cell || cell.v == null) continue;
+
+    // a) cella già di tipo data
+    if (cell.t === "d" && cell.v instanceof Date) {
+      expiryDate = cell.v as Date;
+      break;
+    }
+
+    // b) seriale Excel (numero)
+    if (cell.t === "n") {
+      const serial = cell.v as number;
+      const { y, m, d } = XLSX.SSF.parse_date_code(serial);
+      if (y && m && d) {
+        expiryDate = new Date(Date.UTC(y, m - 1, d));
+        break;
+      }
+    }
+
+    // c) stringa "24/05/2025" o "24-05-2025"
+    const str = String(cell.v).trim();
+    const m = str.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (m) {
+      const [, dd, mm, yyyy] = m.map(Number);
+      expiryDate = new Date(Date.UTC(yyyy, mm - 1, dd));
+      break;
+    }
+  }
+
+  // 3️⃣ se abbiamo la data, calcoliamo lo stato
+  if (expiryDate) {
+    const diffDays = Math.floor(
+      (expiryDate.getTime() - Date.now()) / 86_400_000
+    );
+
+    if (diffDays < 0) alertStatus = "expired";
+    else if (diffDays <= 30) alertStatus = "warning";
+  }
+
+  // 4️⃣ override via emoji - se presenti
+  for (const ref of cellsToCheck) {
+    const cell = sheet[ref];
+    if (!cell || cell.v == null) continue;
+
+    const txt = String(cell.v);
+    if (txt.includes("🔴")) {
+      alertStatus = "expired";
+      break;
+    }
+    if (txt.includes("⚠️")) {
+      alertStatus = "warning";
+      break;
+    }
+  }
+
+  return { alertStatus, expiryDate };
+}
+// ✅ FUNZIONE DEPRECATA: Manteniamo per compatibilità ma ora usa analyzeExcelContent
+export async function checkExcelAlertStatus(filePath: string): Promise<string> {
+  const result = await analyzeExcelContent(filePath);
+  return result.alertStatus;
+}
+
+// ✅ FUNZIONE AGGIORNATA: Ora analizza anche il contenuto Excel
 export async function processDocumentFile(
   fileName: string,
-  driveUrl: string
+  driveUrl: string,
+  localFilePath?: string
 ): Promise<InsertDocument | null> {
   try {
     console.log(`📂 Analisi file: ${fileName}`);
@@ -137,14 +201,31 @@ export async function processDocumentFile(
       return null;
     }
 
+    // ✅ NUOVO: Analizza contenuto Excel se disponibile
+    let alertStatus = "none";
+    let expiryDate: Date | null = null;
+
+    if (localFilePath && fileType === "xlsx") {
+      console.log(`🔍 Analizzando contenuto Excel: ${localFilePath}`);
+      const excelAnalysis = await analyzeExcelContent(localFilePath);
+      alertStatus = excelAnalysis.alertStatus;
+      expiryDate = excelAnalysis.expiryDate;
+    }
+
     const document: InsertDocument = {
       title,
       path: isoPath,
       revision,
       driveUrl,
       fileType,
-      alertStatus: "none",
+      alertStatus,
+      expiryDate,
       isObsolete: false,
+      parentId: null, // or some other default value
+      fileHash: null, // or some other default value
+      encryptedCachePath: null, // or some other default value
+      ownerId: null, // or some other default value
+      clientId: null, // or some other default value
     };
 
     console.log(`✅ Documento valido generato:`, document);
@@ -179,24 +260,33 @@ export async function markObsoleteDocuments(
   userId: number
 ): Promise<void> {
   for (const doc of documents) {
-    await mongoStorage.markDocumentObsolete(doc.id);
+    await mongoStorage.markDocumentObsolete(doc.legacyId);
     await mongoStorage.createLog({
       userId,
       action: "revision",
-      documentId: doc.id,
+      documentId: doc.legacyId,
       details: { message: `Obsoleto: ${doc.title} ${doc.revision}` },
     });
   }
 }
 
+/**
+ * Sincronizza una cartella Google Drive (e tutte le sue sottocartelle) con il DB.
+ * - Elenca ricorsivamente ogni file (no cartelle)
+ * - Scarica il file in /tmp
+ * - Esegue `processDocumentFile` che valida nome + metadata
+ * - Crea il documento se non esiste, marca le revisioni obsolete
+ */
 export async function syncWithGoogleDrive(
   syncFolder: string,
   userId: number
 ): Promise<void> {
   try {
+    /* ────────────────────────────────────────────────────
+     * 1. Dati utente / client
+     * ──────────────────────────────────────────────────── */
     const user = await mongoStorage.getUser(userId);
     const clientId = user?.clientId;
-
     if (!clientId) {
       console.error("❌ Client ID non trovato per l'utente");
       return;
@@ -208,22 +298,36 @@ export async function syncWithGoogleDrive(
     console.log(`📁 Sync da ${folderId} per utente ${userId}`);
     console.log(`🔑 Client ID: ${clientId}`);
 
-    // ✅ Ottieni il client Google Drive autenticato via OAuth2
+    /* ────────────────────────────────────────────────────
+     * 2. Client Google Drive
+     * ──────────────────────────────────────────────────── */
     const drive = await getDriveClientForClient(clientId);
 
+    /* ────────────────────────────────────────────────────
+     * 3. Listing ricorsivo (no cartelle nella lista)
+     * ──────────────────────────────────────────────────── */
     const files = await googleDriveListFiles(drive, folderId);
-    console.log(`📄 File trovati in Drive: ${files.length}`);
+    console.log(`📄 File trovati in Drive (ricorsivo): ${files.length}`);
 
+    /* ────────────────────────────────────────────────────
+     * 4. Loop seriale (puoi parallelizzare con p-limit se servono performance)
+     * ──────────────────────────────────────────────────── */
     for (const file of files) {
       console.log(`🔄 Processando file: ${file.name}`);
       const tmpPath = path.join(os.tmpdir(), `${uuidv4()}-${file.name}`);
 
       try {
+        /* 4.1 Download */
         await googleDriveDownloadFile(drive, file.id!, tmpPath);
         console.log(`✅ File scaricato: ${file.name}`);
 
-        const doc = await processDocumentFile(file.name!, file.webViewLink!);
-        fs.unlinkSync(tmpPath);
+        /* 4.2 Parsing + metadata check
+         *    processDocumentFile ora accetta (fileName, driveUrl, tmpPath)       */
+        const doc = await processDocumentFile(
+          file.name!,
+          file.webViewLink!,
+          tmpPath
+        );
 
         if (!doc) {
           console.log(
@@ -232,16 +336,15 @@ export async function syncWithGoogleDrive(
           continue;
         }
 
-        const existing =
-          await mongoStorage.getDocumentByPathAndTitleAndRevision(
-            doc.path,
-            doc.title,
-            doc.revision
-          );
-
-        if (existing) {
+        /* 4.3 De-dup / insert */
+        const exists = await mongoStorage.getDocumentByPathAndTitleAndRevision(
+          doc.path,
+          doc.title,
+          doc.revision
+        );
+        if (exists) {
           console.log(
-            `ℹ️ Documento già esistente: ${doc.title} ${doc.revision}`
+            `ℹ️ Documento già presente: ${doc.title} ${doc.revision}`
           );
           continue;
         }
@@ -252,6 +355,7 @@ export async function syncWithGoogleDrive(
           ownerId: userId,
         });
 
+        /* 4.4 Obsolete revisions */
         const obsolete = await findObsoleteRevisions(
           doc.path,
           doc.title,
@@ -259,12 +363,16 @@ export async function syncWithGoogleDrive(
         );
         await markObsoleteDocuments(obsolete, userId);
 
-        console.log(`✅ Documento sincronizzato: ${created.title}`);
+        console.log(
+          `✅ Documento sincronizzato: ${created.title} (scadenza: ${
+            doc.expiryDate?.toISOString() || "N/A"
+          }, status: ${doc.alertStatus})`
+        );
       } catch (fileError) {
         console.error(`❌ Errore processando file ${file.name}:`, fileError);
-        if (fs.existsSync(tmpPath)) {
-          fs.unlinkSync(tmpPath);
-        }
+      } finally {
+        /* 4.5 Cleanup /tmp (sempre, anche in caso di errore) */
+        fs.promises.unlink(tmpPath).catch(() => {});
       }
     }
 
@@ -278,7 +386,7 @@ export function startAutomaticSync(syncFolder: string, userId: number): void {
   stopAutomaticSync(userId);
   const intervalId = setInterval(() => {
     syncWithGoogleDrive(syncFolder, userId);
-  }, 15 * 60 * 1000);
+  }, 30 * 1000);
   syncIntervals[userId] = intervalId;
   syncWithGoogleDrive(syncFolder, userId);
   console.log(`🔄 Sync automatica attiva per user ${userId}`);
@@ -312,10 +420,10 @@ async function syncAllClientsOnce(): Promise<void> {
         console.warn(
           `⚠️ Nessun utente admin trovato per il client "${client.name}" (id=${client.id})`
         );
-        continue; // salta alla prossima iterazione
+        continue;
       }
 
-      const userId = admin.id;
+      const userId = admin.legacyId;
 
       try {
         console.log(

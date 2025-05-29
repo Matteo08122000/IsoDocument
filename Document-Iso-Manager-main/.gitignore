@@ -1,3 +1,5 @@
 node_modules
 .env
+.env.production
 service-account.json
+attached_assets

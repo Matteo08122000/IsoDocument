@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../hooks/use-auth";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ClientDocument as Client } from "../../../shared-types/client";
@@ -89,6 +89,7 @@ export default function ClientsPage() {
   const { toast } = useToast();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const {
     data: clients,
@@ -200,17 +201,38 @@ export default function ClientsPage() {
     };
 
     if (editingClient) {
-      updateMutation.mutate({ id: editingClient.id, data: dataToSubmit });
+      updateMutation.mutate({ id: editingClient.legacyId, data: dataToSubmit });
     } else {
       createMutation.mutate(dataToSubmit);
     }
   };
 
   const connectGoogleDrive = async (clientId: number) => {
-    const res = await fetch(`/api/google/auth-url/${clientId}`);
-    const data = await res.json();
-    window.open(data.url, "_blank");
+    setIsConnecting(true);
+    try {
+      const res = await fetch(`/api/google/auth-url/${clientId}`);
+      const data = await res.json();
+      window.open(data.url, "_blank");
+    } catch (error) {
+      toast({
+        title: "Errore",
+        description: "Impossibile connettersi a Google Drive",
+        variant: "destructive",
+      });
+      setIsConnecting(false);
+    }
   };
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === "GOOGLE_DRIVE_CONNECTED") {
+        window.location.href = "/";
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, []);
 
   // Formatta la data
   const formatDate = (dateString: string | Date) => {
@@ -309,8 +331,16 @@ export default function ClientsPage() {
                           size="sm"
                           className="ml-2"
                           onClick={() => connectGoogleDrive(client.legacyId)}
+                          disabled={isConnecting}
                         >
-                          Collega Drive
+                          {isConnecting ? (
+                            <>
+                              <div className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-primary border-t-transparent mr-2"></div>
+                              Connessione...
+                            </>
+                          ) : (
+                            "Collega Drive"
+                          )}
                         </Button>
                       </TableCell>
                     </TableRow>

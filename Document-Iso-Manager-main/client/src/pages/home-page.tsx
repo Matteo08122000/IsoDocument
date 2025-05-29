@@ -11,6 +11,9 @@ import Footer from "../components/footer";
 import { Loader2 } from "lucide-react";
 
 export default function HomePage() {
+  /* -----------------------------------------------------------
+   * STATE
+   * --------------------------------------------------------- */
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(
     null
   );
@@ -19,12 +22,34 @@ export default function HomePage() {
   const [filterValue, setFilterValue] = useState("all");
 
   const { user } = useAuth();
+  const driveFolderId = user?.client?.driveFolderId;
 
-  const { data: documents, isLoading } = useQuery<Document[]>({
+  /* -----------------------------------------------------------
+   * QUERY – documenti attivi
+   * --------------------------------------------------------- */
+  const {
+    data: documents,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<Document[]>({
     queryKey: ["/api/documents"],
   });
 
-  // Filter documents based on search query and filter value
+  /* -----------------------------------------------------------
+   * QUERY – documenti obsoleti (solo per stats)
+   * --------------------------------------------------------- */
+  const {
+    data: obsoleteDocs,
+    isLoading: isLoadingObsolete,
+    error: errorObsolete,
+  } = useQuery<Document[]>({
+    queryKey: ["/api/documents/obsolete"],
+  });
+
+  /* -----------------------------------------------------------
+   * FILTER – lista principale
+   * --------------------------------------------------------- */
   const filteredDocuments = documents?.filter((doc) => {
     // Search filter
     const matchesSearch =
@@ -38,6 +63,11 @@ export default function HomePage() {
       matchesFilter = doc.alertStatus === "warning";
     } else if (filterValue === "expired") {
       matchesFilter = doc.alertStatus === "expired";
+    } else if (filterValue === "none") {
+      matchesFilter =
+        doc.alertStatus === "none" ||
+        doc.alertStatus === undefined ||
+        doc.alertStatus === null;
     } else if (filterValue === "recent") {
       const oneWeekAgo = new Date();
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -47,22 +77,29 @@ export default function HomePage() {
     return matchesSearch && matchesFilter;
   });
 
-  // Stats calculations
+  /* -----------------------------------------------------------
+   * STATS – dashboard
+   * --------------------------------------------------------- */
   const stats = {
     total: documents?.length || 0,
     expiringSoon:
       documents?.filter((doc) => doc.alertStatus === "warning").length || 0,
     expired:
       documents?.filter((doc) => doc.alertStatus === "expired").length || 0,
-    obsolete: documents?.filter((doc) => doc.isObsolete === true).length || 0,
+    obsolete: obsoleteDocs?.length || 0, // ✅ conteggio corretto
   };
 
-  // Handle document preview
+  /* -----------------------------------------------------------
+   * HANDLERS
+   * --------------------------------------------------------- */
   const handlePreview = (document: Document) => {
     setSelectedDocument(document);
     setIsPreviewOpen(true);
   };
 
+  /* -----------------------------------------------------------
+   * RENDER
+   * --------------------------------------------------------- */
   return (
     <div className="flex flex-col min-h-screen">
       <HeaderBar onSearch={setSearchQuery} user={user} />
@@ -87,10 +124,12 @@ export default function HomePage() {
           filterValue={filterValue}
           onSearch={setSearchQuery}
           isAdmin={user?.role === "admin"}
+          driveFolderId={driveFolderId}
+          onSyncComplete={refetch}
         />
 
         {/* Document Table */}
-        {isLoading ? (
+        {isLoading || isLoadingObsolete ? (
           <div className="flex justify-center items-center h-40 xs:h-48 sm:h-56 md:h-64">
             <Loader2 className="h-6 w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 animate-spin text-primary" />
           </div>

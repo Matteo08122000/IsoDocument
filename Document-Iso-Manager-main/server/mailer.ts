@@ -46,7 +46,7 @@ export async function handlePasswordReset(req: Request, res: Response) {
     // Genera un link sicuro per il reset della password (valido per 1 ora)
     const resetLink = generateSecureLink(
       null,
-      user.id,
+      user.legacyId,
       "reset-password",
       60 * 60 * 1000
     );
@@ -54,7 +54,7 @@ export async function handlePasswordReset(req: Request, res: Response) {
 
     // Log dell'azione
     await storage.createLog({
-      userId: user.id,
+      userId: user.legacyId,
       action: "password-reset-request",
       details: {
         email: user.email,

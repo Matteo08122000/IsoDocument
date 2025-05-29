@@ -30,6 +30,9 @@ export default function DocumentTree({
   documents,
   onSelectDocument,
 }: DocumentTreeProps) {
+  console.log("🌳 DocumentTree - Documenti ricevuti:", documents.length);
+  console.log("📄 Dettaglio documenti:", documents);
+
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({
     // Default expanded nodes
     "1": true,
@@ -39,6 +42,8 @@ export default function DocumentTree({
 
   // Build tree structure from document paths
   const buildTree = (docs: Document[]): TreeNode => {
+    console.log("🌳 Costruzione albero con", docs.length, "documenti");
+
     const root: TreeNode = {
       path: "",
       label: "Root",
@@ -56,6 +61,7 @@ export default function DocumentTree({
 
     // First, create the tree structure
     for (const doc of docs) {
+      console.log("📄 Processando documento:", doc.path);
       const parts = doc.path.split(".");
       let currentPath = "";
 
@@ -64,6 +70,7 @@ export default function DocumentTree({
         const nextPath = currentPath ? `${currentPath}.${part}` : part;
 
         if (!nodeMap[nextPath]) {
+          console.log("🌱 Creazione nuovo nodo:", nextPath);
           const newNode: TreeNode = {
             path: nextPath,
             label: `${nextPath} ${i === parts.length - 1 ? doc.title : ""}`,
@@ -75,8 +82,6 @@ export default function DocumentTree({
           };
 
           nodeMap[nextPath] = newNode;
-
-          // Add to parent
           const parentNode = nodeMap[currentPath];
           parentNode.children.push(newNode);
         }
@@ -87,6 +92,7 @@ export default function DocumentTree({
       // Add document to its node
       const node = nodeMap[doc.path];
       node.documents.push(doc);
+      console.log("📄 Documento aggiunto al nodo:", doc.path);
 
       // Update warning/error flags
       if (doc.alertStatus === "warning") {
@@ -112,6 +118,7 @@ export default function DocumentTree({
       }
     }
 
+    console.log("✅ Albero costruito");
     return root;
   };
 
@@ -175,7 +182,7 @@ export default function DocumentTree({
           <div className="ml-7 pl-4 border-l border-slate-200 dark:border-slate-700">
             {node.documents.map((doc) => (
               <button
-                key={doc.id}
+                key={doc.legacyId}
                 onClick={() => onSelectDocument(doc)}
                 className="w-full text-left py-1.5 pl-2 pr-2 text-sm text-primary-600 dark:text-primary-400 hover:underline flex items-center"
               >

@@ -38,21 +38,27 @@ export function setupSecurity(app: Express) {
 
   // Verifica variabili d’ambiente critiche in produzione
   if (process.env.NODE_ENV === "production") {
-    const requiredEnvVars = ["ENCRYPTION_KEY", "SESSION_SECRET", "MONGODB_URI"];
+    const requiredEnvVars = ["ENCRYPTION_KEY", "SESSION_SECRET", "DB_URI"];
     const missingVars = requiredEnvVars.filter((name) => !process.env[name]);
 
     if (missingVars.length > 0) {
-      console.error(`ERRORE CRITICO: Variabili mancanti: ${missingVars.join(", ")}`);
+      console.error(
+        `ERRORE CRITICO: Variabili mancanti: ${missingVars.join(", ")}`
+      );
       process.exit(1);
     }
 
     if (process.env.ENCRYPTION_KEY.length < 32) {
-      console.error("ERRORE CRITICO: ENCRYPTION_KEY deve avere almeno 32 caratteri");
+      console.error(
+        "ERRORE CRITICO: ENCRYPTION_KEY deve avere almeno 32 caratteri"
+      );
       process.exit(1);
     }
 
     if (process.env.SESSION_SECRET.length < 32) {
-      console.error("ERRORE CRITICO: SESSION_SECRET deve avere almeno 32 caratteri");
+      console.error(
+        "ERRORE CRITICO: SESSION_SECRET deve avere almeno 32 caratteri"
+      );
       process.exit(1);
     }
   }

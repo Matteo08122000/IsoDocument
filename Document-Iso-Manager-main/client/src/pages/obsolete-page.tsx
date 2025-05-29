@@ -5,7 +5,6 @@ import { DocumentDocument as Document } from "../../../shared-types/schema";
 import { useToast } from "../hooks/use-toast";
 import HeaderBar from "../components/header-bar";
 import Footer from "../components/footer";
-import DocumentTable from "../components/document-table";
 import {
   Card,
   CardContent,
@@ -22,12 +21,20 @@ export default function ObsoletePage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  // Get obsolete documents
-  const { data: documents, isLoading } = useQuery<Document[]>({
+  /* -----------------------------------------------------------
+   * QUERY – documenti obsoleti
+   * --------------------------------------------------------- */
+  const {
+    data: documents,
+    isLoading,
+    error,
+  } = useQuery<Document[]>({
     queryKey: ["/api/documents/obsolete"],
   });
 
-  // Restore document mutation
+  /* -----------------------------------------------------------
+   * MUTATION – ripristino documento
+   * --------------------------------------------------------- */
   const restoreMutation = useMutation({
     mutationFn: async (documentId: number) => {
       const res = await apiRequest(
@@ -53,7 +60,9 @@ export default function ObsoletePage() {
     },
   });
 
-  // Filter documents by search query
+  /* -----------------------------------------------------------
+   * FILTRO – ricerca locale
+   * --------------------------------------------------------- */
   const filteredDocuments = documents?.filter((doc) => {
     if (searchQuery === "") return true;
 
@@ -62,16 +71,13 @@ export default function ObsoletePage() {
     return (
       doc.title.toLowerCase().includes(searchLower) ||
       doc.path.toLowerCase().includes(searchLower) ||
-      doc.revision.toLowerCase().includes(searchLower)
+      String(doc.revision).toLowerCase().includes(searchLower)
     );
   });
 
-  // Handle document restoration
-  const handleRestore = (documentId: number) => {
-    restoreMutation.mutate(documentId);
-  };
-
-  // Redirect non-admin users
+  /* -----------------------------------------------------------
+   * GUARD – accesso solo admin
+   * --------------------------------------------------------- */
   if (user?.role !== "admin") {
     return (
       <div className="flex flex-col min-h-screen">
@@ -107,6 +113,7 @@ export default function ObsoletePage() {
 
       <main className="flex-1 bg-slate-50 dark:bg-slate-900 p-4 md:p-6">
         <div className="max-w-7xl mx-auto">
+          {/* Page header */}
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
               Documenti Obsoleti
@@ -117,7 +124,7 @@ export default function ObsoletePage() {
             </p>
           </div>
 
-          {/* Search and filters */}
+          {/* Search bar */}
           <div className="mb-6">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-1">
@@ -139,7 +146,8 @@ export default function ObsoletePage() {
               <div className="flex items-center justify-between">
                 <CardTitle>Archivio Documenti</CardTitle>
                 <div className="text-sm text-slate-500 dark:text-slate-400">
-                  {documents?.length || 0} documenti obsoleti
+                  {filteredDocuments?.length ?? 0} / {documents?.length ?? 0}{" "}
+                  documenti obsoleti
                 </div>
               </div>
             </CardHeader>
@@ -148,6 +156,10 @@ export default function ObsoletePage() {
                 <div className="flex justify-center items-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
+              ) : error ? (
+                <p className="text-destructive text-center py-10">
+                  Errore nel caricamento dei documenti.
+                </p>
               ) : filteredDocuments && filteredDocuments.length > 0 ? (
                 <div className="overflow-x-auto">
                   <table className="w-full border-collapse">
@@ -173,7 +185,7 @@ export default function ObsoletePage() {
                     <tbody>
                       {filteredDocuments.map((doc) => (
                         <tr
-                          key={doc.id}
+                          key={doc.legacyId}
                           className="border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
                         >
                           <td className="py-3 px-4">{doc.title}</td>
@@ -191,7 +203,7 @@ export default function ObsoletePage() {
                               size="sm"
                               variant="outline"
                               className="flex items-center text-xs"
-                              onClick={() => handleRestore(doc.id)}
+                              onClick={() => handleRestore(doc.legacyId)}
                               disabled={restoreMutation.isPending}
                             >
                               <ArchiveRestore className="mr-1 h-3.5 w-3.5" />

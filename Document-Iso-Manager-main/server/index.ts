@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import * as dotenv from "dotenv";
 import cors from "cors";
+import { mongoStorage } from "./mongo-storage";
 
 // ✅ Carica .env PRIMA DI QUALUNQUE ALTRO IMPORT
 if (process.env.NODE_ENV === "production") {
@@ -58,6 +59,22 @@ app.use((req, res, next) => {
 
   next();
 });
+
+async function startServer() {
+  try {
+    await mongoStorage.connect();
+    console.log("Connected to MongoDB");
+
+    // Correggi i documenti esistenti
+    await mongoStorage.fixDocumentsClientId();
+
+    const app = express();
+    // ... rest of the server setup code ...
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
 
 (async () => {
   // ✅ IMPORTA ORA registerRoutes DOPO dotenv.config()

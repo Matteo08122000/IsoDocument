@@ -6,6 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { mongoStorage as storage } from "./mongo-storage";
 import { UserDocument as User } from "../shared-types/schema";
+import { startAutomaticSync } from "./google-drive";
 // Usiamo lo store MongoDB dalla classe MongoStorage
 
 declare global {
@@ -51,7 +52,7 @@ export function sessionTimeoutMiddleware(
 
       // Aggiorniamo anche nel database in background senza bloccare la richiesta
       storage
-        .updateUserSession(req.user.id, null, defaultExpiry)
+        .updateUserSession(req.user.legacyId, null, defaultExpiry)
         .catch((err) =>
           console.error(
             "Errore nel salvataggio della scadenza di sessione:",
@@ -66,7 +67,7 @@ export function sessionTimeoutMiddleware(
     // Verifica se la sessione è scaduta
     if (now > expiry) {
       console.log(
-        `Sessione scaduta per l'utente ${req.user.id} - Ultima attività: ${req.user.sessionExpiry}`
+        `Sessione scaduta per l'utente ${req.user.legacyId} - Ultima attività: ${req.user.sessionExpiry}`
       );
 
       // Verificare se l'utente aveva scelto "Ricordami"
@@ -78,7 +79,7 @@ export function sessionTimeoutMiddleware(
       try {
         storage
           .createLog({
-            userId: req.user.id,
+            userId: req.user.legacyId,
             action: "session_expired",
             details: {
               message: "User session expired",
@@ -161,7 +162,7 @@ export function setupAuth(app: Express) {
     )
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
+  passport.serializeUser((user, done) => done(null, user.legacyId));
   passport.deserializeUser(async (id: number, done) => {
     try {
       const user = await storage.getUser(id);
@@ -243,7 +244,7 @@ export function setupAuth(app: Express) {
       });
 
       await storage.createLog({
-        userId: user.id,
+        userId: user.legacyId,
         action: "login",
         details: {
           message: "User registered",
@@ -272,8 +273,8 @@ export function setupAuth(app: Express) {
 
       // Set session expiry - 30 minutes by default, 7 days if "remember me" is checked
       const sessionDuration = remember
-        ? 7 * 24 * 60 * 60 * 1000
-        : 60 * 60 * 1000; // 7 giorni o 60 minuti (aumentato da 30 a 60)
+        ? 30 * 24 * 60 * 60 * 1000
+        : 60 * 60 * 1000; // 30giorni o 60 minuti
       const sessionExpiry = new Date(Date.now() + sessionDuration);
       const lastLogin = new Date();
 
@@ -284,14 +285,14 @@ export function setupAuth(app: Express) {
 
       // Update user's last login time and session expiry in the database
       const updatedUser = await storage.updateUserSession(
-        user.id,
+        user.legacyId,
         lastLogin,
         sessionExpiry
       );
 
       // Log the login event with timestamp for audit trail
       await storage.createLog({
-        userId: user.id,
+        userId: user.legacyId,
         action: "login",
         details: {
           message: "User logged in",
@@ -305,6 +306,11 @@ export function setupAuth(app: Express) {
       let clientDetails = null;
       if (updatedUser && updatedUser.clientId) {
         clientDetails = await storage.getClient(updatedUser.clientId);
+
+        // Avvia la sincronizzazione se l'utente ha un client associato
+        if (clientDetails?.driveFolderId) {
+          startAutomaticSync(clientDetails.driveFolderId, updatedUser.legacyId);
+        }
       }
 
       // Usa l'utente aggiornato per il login
@@ -343,7 +349,7 @@ export function setupAuth(app: Express) {
       if (req.user) {
         // Audit log for logout
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "logout",
           details: {
             message: "User logged out",
@@ -413,7 +419,7 @@ export function setupAuth(app: Express) {
 
         // Aggiorna l'utente nel database e ricevi l'utente aggiornato
         const updatedUser = await storage.updateUserSession(
-          req.user.id,
+          req.user.legacyId,
           null,
           sessionExpiry
         );

@@ -1,4 +1,4 @@
-import { DocumentDocument as Document }from "../../../shared-types/schema";
+import { DocumentDocument as Document } from "../../../shared-types/schema";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,7 @@ import {
   AlertCircle,
   CheckCircle,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 
 interface DocumentPreviewModalProps {
   document: Document | null;
@@ -32,6 +33,36 @@ export default function DocumentPreviewModal({
   isOpen,
   onClose,
 }: DocumentPreviewModalProps) {
+  console.log("🖼️ DocumentPreviewModal - Documento:", document);
+  console.log("🔍 Stato modal:", { isOpen });
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && document) {
+      console.log("🔄 Caricamento preview per:", document.path);
+      setIsLoading(true);
+      setError(null);
+
+      // Simula il caricamento del preview
+      const timer = setTimeout(() => {
+        console.log("✅ Preview caricato");
+        setIsLoading(false);
+      }, 1000);
+
+      return () => {
+        console.log("🧹 Cleanup preview");
+        clearTimeout(timer);
+      };
+    }
+  }, [isOpen, document]);
+
+  if (!isOpen) {
+    console.log("❌ Modal chiusa");
+    return null;
+  }
+
   if (!document) {
     return null;
   }

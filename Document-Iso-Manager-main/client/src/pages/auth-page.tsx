@@ -96,7 +96,7 @@ export default function AuthPage() {
       // Reindirizza alla home page dopo un breve delay per mostrare lo spinner
       const redirectTimeout = setTimeout(() => {
         setLocation("/");
-      }, 1000); // Ridotto a 1 secondo per una migliore esperienza utente
+      }, 2000); // Ridotto a 1 secondo per una migliore esperienza utente
 
       // Pulisce il timeout se il componente viene smontato
       return () => clearTimeout(redirectTimeout);
@@ -184,7 +184,7 @@ export default function AuthPage() {
         title: "Email inviata",
         description:
           "Se l'indirizzo email è registrato, riceverai un link per reimpostare la password.",
-        duration: 5000,
+        duration: 1000,
       });
       passwordResetForm.reset();
       setShowPasswordResetModal(false);

@@ -34,10 +34,12 @@ export interface DocumentDocument extends mongoose.Document {
   driveUrl: string;
   fileType: string;
   alertStatus: string | null;
+  expiryDate: Date | null; // ✅ Aggiunto per gestire scadenze Excel
   parentId: number | null;
   isObsolete: boolean | null;
   fileHash: string | null;
   encryptedCachePath: string | null;
+  clientId: number | null; // ✅ Aggiunto per coerenza con InsertDocument
   ownerId: number | null;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -52,15 +54,34 @@ const documentSchema = new Schema<DocumentDocument>({
   driveUrl: { type: String, required: true },
   fileType: { type: String, required: true },
   alertStatus: { type: String, default: "none" },
+  expiryDate: { type: Date, default: null }, // ✅ Schema per scadenze Excel
   parentId: { type: Number, default: null },
   isObsolete: { type: Boolean, default: false },
   fileHash: { type: String, default: null },
   encryptedCachePath: { type: String, default: null },
+  clientId: { type: Number, default: null }, // ✅ Aggiunto campo clientId
   ownerId: { type: Number, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   legacyId: { type: Number, unique: true },
 });
+
+// Interfaccia InsertDocument aggiornata
+export interface InsertDocument {
+  title: string;
+  path: string;
+  revision: string;
+  driveUrl: string;
+  fileType: string;
+  alertStatus?: string;
+  expiryDate?: Date | null; // ✅ Aggiunto per scadenze Excel
+  parentId?: number | null;
+  isObsolete?: boolean;
+  fileHash?: string | null;
+  encryptedCachePath?: string | null;
+  clientId?: number;
+  ownerId?: number;
+}
 
 // Log Schema
 export interface LogDocument extends mongoose.Document {
@@ -107,7 +128,7 @@ export async function getNextSequence(name: string): Promise<number> {
 }
 
 // Client Schema
-export interface ClientDocument {
+export interface ClientDocument extends mongoose.Document {
   id: number;
   name: string;
   driveFolderId: string;
@@ -115,11 +136,7 @@ export interface ClientDocument {
   updatedAt: Date;
   legacyId: number;
 
-  // ❌ questi erano i vecchi campi, li puoi rimuovere
-  // driveAccessToken: string | null;
-  // driveRefreshToken: string | null;
-
-  // ✅ questo è il nuovo oggetto usato in mongoStorage.updateClientTokens
+  // ✅ Nuovo oggetto per tokens Google
   google?: {
     accessToken: string;
     refreshToken: string;
@@ -127,7 +144,8 @@ export interface ClientDocument {
   };
 }
 
-const clientSchema = new mongoose.Schema({
+const clientSchema = new mongoose.Schema<ClientDocument>({
+  id: { type: Number, required: true, unique: true },
   legacyId: { type: Number, required: true, unique: true },
   name: { type: String, required: true },
   driveFolderId: { type: String, required: true },
@@ -136,8 +154,8 @@ const clientSchema = new mongoose.Schema({
     refreshToken: { type: String, required: false },
     expiryDate: { type: Number, required: false },
   },
-  createdAt: { type: Date, required: true },
-  updatedAt: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
 });
 
 // Company Code Schema
@@ -184,3 +202,5 @@ export const CompanyCodeModel = mongoose.model<CompanyCodeDocument>(
   "CompanyCode",
   companyCodeSchema
 );
+
+export { documentSchema };

@@ -1,7 +1,10 @@
 import { useState } from "react";
 import { useAuth } from "../hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
-import { LogDocument as Log } from "../../../shared-types/schema";
+import {
+  LogDocument as Log,
+  DocumentDocument as Document,
+} from "../../../shared-types/schema";
 import HeaderBar from "../components/header-bar";
 import {
   Card,
@@ -23,25 +26,45 @@ import { Button } from "../components/ui/button";
 import { Loader2, ShieldAlert, Clock, Search } from "lucide-react";
 import { format } from "date-fns";
 
+// Utility: serializza details in modo sicuro
+function detailsToString(details: any) {
+  if (typeof details === "string") return details;
+  if (!details) return "";
+  if (typeof details === "object" && details.message) return details.message;
+  return JSON.stringify(details, null, 2);
+}
+
 export default function AuditLogsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const { user } = useAuth();
 
-  const { data: logs, isLoading } = useQuery<Log[]>({
+  const { data: logs, isLoading: loadingLogs } = useQuery<Log[]>({
     queryKey: ["/api/logs"],
   });
+
+  // Fai fetch anche di tutti i documenti (per matchare titolo)
+  const { data: documents, isLoading: loadingDocs } = useQuery<Document[]>({
+    queryKey: ["/api/documents"],
+  });
+
+  // Trova titolo documento per ID
+  function getDocumentTitleById(id: number | undefined | null): string {
+    if (!id || !documents) return "";
+    const doc = documents.find((d) => d.legacyId === id);
+    return doc ? doc.title : "";
+  }
 
   // Filter logs based on search query
   const filteredLogs = logs?.filter((log) => {
     if (searchQuery === "") return true;
-
     const searchLower = searchQuery.toLowerCase();
 
     return (
       log.action.toLowerCase().includes(searchLower) ||
-      log.details?.toLowerCase().includes(searchLower) ||
+      detailsToString(log.details).toLowerCase().includes(searchLower) ||
       (`${log.documentId}` || "").includes(searchLower) ||
-      (`${log.userId}` || "").includes(searchLower)
+      (`${log.userId}` || "").includes(searchLower) ||
+      getDocumentTitleById(log.documentId).toLowerCase().includes(searchLower)
     );
   });
 
@@ -136,7 +159,7 @@ export default function AuditLogsPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {isLoading ? (
+              {loadingLogs || loadingDocs ? (
                 <div className="flex justify-center items-center py-8">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
@@ -170,16 +193,31 @@ export default function AuditLogsPage() {
                           </TableCell>
                           <TableCell>{log.userId || "Sistema"}</TableCell>
                           <TableCell>
-                            {log.documentId ? (
+                            {log.documentId !== null &&
+                            log.documentId !== undefined &&
+                            getDocumentTitleById(log.documentId) ? (
                               <div className="flex flex-col">
-                                <span>{log.documentId}</span>
+                                <span className="font-mono text-xs">
+                                  {log.documentId}
+                                </span>
+                                <span className="text-xs text-slate-500">
+                                  {getDocumentTitleById(log.documentId)}
+                                </span>
                               </div>
                             ) : (
                               <span className="text-slate-500">N/A</span>
                             )}
                           </TableCell>
                           <TableCell className="text-sm">
-                            {log.details || "Nessun dettaglio"}
+                            {typeof log.details === "string" ? (
+                              log.details
+                            ) : log.details ? (
+                              <pre className="whitespace-pre-wrap text-xs">
+                                {JSON.stringify(log.details, null, 2)}
+                              </pre>
+                            ) : (
+                              "Nessun dettaglio"
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}

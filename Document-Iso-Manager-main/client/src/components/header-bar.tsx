@@ -180,7 +180,23 @@ export default function HeaderBar({ onSearch, user }: HeaderBarProps) {
                     <DropdownMenuItem asChild>
                       <Link href="/clients">
                         <FileText className="mr-2 h-4 w-4" />
-                        <span>Clienti</span>
+                        <span>Google Drive </span>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {user?.role === "admin" && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/users">
+                        <FileText className="mr-2 h-4 w-4" />
+                        <span>Utenti</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  {user?.role === "admin" && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/audit-logs">
+                        <FileText className="mr-2 h-4 w-4" />
+                        <span>audit-logs</span>
                       </Link>
                     </DropdownMenuItem>
                   )}

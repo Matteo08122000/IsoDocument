@@ -1,7 +1,7 @@
 import { google, drive_v3 } from "googleapis";
 import fs from "fs";
 import { pipeline } from "stream/promises";
-import { getDriveClientForClient } from "./google-oauth";
+import { GaxiosResponse } from "gaxios";
 
 export async function googleDriveDownloadFile(
   drive: drive_v3.Drive,
@@ -67,30 +67,35 @@ export async function googleDriveListFiles(
   drive: drive_v3.Drive,
   folderId: string
 ): Promise<drive_v3.Schema$File[]> {
-  console.log(`🔍 Ricerca file in Drive - Folder ID: ${folderId}`);
-
   const files: drive_v3.Schema$File[] = [];
-  let pageToken: string | undefined = undefined;
+  const pending: string[] = [folderId]; // ← coda BFS
 
-  do {
-    const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: "nextPageToken, files(id, name, webViewLink, mimeType)",
-      spaces: "drive",
-      pageSize: 1000,
-      pageToken,
-    });
+  while (pending.length) {
+    const current = pending.pop()!;
+    let pageToken: string | undefined;
 
-    if (res.data.files) {
-      files.push(...res.data.files);
-      console.log(
-        `📦 ${res.data.files.length} file aggiunti. Totale: ${files.length}`
-      );
-    }
+    do {
+      const res = await drive.files.list({
+        q: `'${current}' in parents and trashed = false`,
+        fields: "nextPageToken, files(id, name, mimeType, webViewLink)",
+        pageSize: 1000,
+        pageToken,
+        spaces: "drive",
+        includeItemsFromAllDrives: true, // ← shared drives
+        supportsAllDrives: true,
+      });
 
-    pageToken = res.data.nextPageToken ?? undefined;
-  } while (pageToken);
+      for (const f of res.data.files ?? []) {
+        if (f.mimeType === "application/vnd.google-apps.folder") {
+          pending.push(f.id!); // ← esplora sottocartella
+        } else {
+          files.push(f); // ← solo file veri
+        }
+      }
 
-  console.log(`✅ Ricerca completata. Totale file trovati: ${files.length}`);
+      pageToken = res.data.nextPageToken ?? undefined;
+    } while (pageToken);
+  }
+
   return files;
 }

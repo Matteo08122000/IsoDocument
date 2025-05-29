@@ -672,7 +672,7 @@ export class MemStorage implements IStorage {
     return {
       valid: true,
       role: companyCode.role,
-      codeId: companyCode.id,
+      codeId: companyCode.legacyId,
     };
   }
 
@@ -799,7 +799,7 @@ export class MemStorage implements IStorage {
 
       // Ripristina i dati
       backupData.users.forEach((user: User) => {
-        this.users.set(user.id, user);
+        this.users.set(user.legacyId, user);
       });
 
       backupData.documents.forEach((document: Document) => {
@@ -807,20 +807,20 @@ export class MemStorage implements IStorage {
       });
 
       backupData.logs.forEach((log: Log) => {
-        this.logs.set(log.id, log);
+        this.logs.set(log.legacyId, log);
       });
 
       // Ripristina i client se presenti nel backup
       if (backupData.clients) {
         backupData.clients.forEach((client: Client) => {
-          this.clients.set(client.id, client);
+          this.clients.set(client.legacyId, client);
         });
       }
 
       // Ripristina i codici aziendali se presenti nel backup
       if (backupData.companyCodes) {
         backupData.companyCodes.forEach((code: CompanyCode) => {
-          this.companyCodes.set(code.id, code);
+          this.companyCodes.set(code.legacyId, code);
         });
       }
 

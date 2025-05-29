@@ -9,14 +9,6 @@ import {
 } from "./notification-service";
 import { handleContactRequest, handlePasswordReset } from "./mailer";
 import { generateSecureLink, verifySecureLink } from "./secure-links";
-import {
-  DocumentDocument as Document,
-  LogDocument as Log,
-  UserDocument as User,
-  InsertDocument,
-  InsertLog,
-  InsertUser,
-} from "../shared-types/schema";
 
 import {
   googleDriveDownloadFile,
@@ -24,30 +16,21 @@ import {
 } from "./google-drive-api";
 import { getDriveClientForClient } from "./google-oauth";
 
-import { ClientDocument as Client, InsertClient } from "../shared-types/client";
-
 import {
   CompanyCodeDocument as CompanyCode,
   InsertCompanyCode,
 } from "../shared-types/companycode";
 
 // Zod schema di validazione (supponiamo siano tutti lì)
-import {
-  insertDocumentSchema,
-  insertClientSchema,
-  insertLogSchema,
-  verifyCompanyCodeSchema,
-} from "../shared-types/validators";
+import { documentSchema } from "../server/models/mongoose-models";
 
 import { z } from "zod";
 import { extractFolderIdFromUrl } from "./google-drive";
 import { startAutomaticSyncForAllClients } from "./google-drive";
-import {
-  googleAuth,
-  googleAuthCallback,
-  getGoogleAuthUrl,
-} from "./google-oauth";
+import { googleAuthCallback, getGoogleAuthUrl } from "./google-oauth";
 import { transporter } from "./mailer";
+import { ClientDocument } from "./models/mongoose-models";
+import { insertClientSchema } from "../shared-types/validators";
 
 // Middleware to check if user is authenticated with improved session timeout check
 const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
@@ -96,7 +79,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/debug/sync-status", isAdmin, async (req, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.user?.legacyId;
       if (!userId) {
         return res.status(401).json({ message: "Utente non autenticato" });
       }
@@ -106,7 +89,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!clientId) {
         return res
           .status(400)
-          .json({ message: "❌ Client ID mancante per l’utente" });
+          .json({ message: "❌ Client ID mancante per l'utente" });
       }
 
       const client = await storage.getClient(clientId);
@@ -126,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const file of files) {
         const tmpPath = path.join(os.tmpdir(), `${uuidv4()}-${file.name}`);
         try {
-          await googleDriveDownloadFile(drive, file.id!, tmpPath);
+          await googleDriveDownloadFile(drive, file.legacyId!, tmpPath);
           const doc = await processDocumentFile(file.name!, file.webViewLink!);
           fs.unlinkSync(tmpPath);
 
@@ -160,7 +143,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             ownerId: userId,
           });
 
-          results.push({ file: file.name, status: "created", id: created.id });
+          results.push({
+            file: file.name,
+            status: "created",
+            id: created.legacyId,
+          });
         } catch (err) {
           if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
           results.push({
@@ -191,16 +178,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Documents API
   app.get("/api/documents", isAuthenticated, async (req, res) => {
     try {
-      const documents = await storage.getAllDocuments();
+      const clientId = req.user?.clientId;
+      if (!clientId) {
+        return res.json([]); // Utente senza clientId non vede nulla
+      }
+
+      const documents = await storage.getDocumentsByClientId(clientId);
       res.json(documents);
     } catch (error) {
+      console.error("❌ [API] Errore nel recupero documenti:", error);
       res.status(500).json({ message: "Impossibile recuperare i documenti" });
     }
   });
 
   app.get("/api/documents/obsolete", isAdmin, async (req, res) => {
     try {
-      const documents = await storage.getObsoleteDocuments();
+      const clientId = req.user?.clientId;
+      if (!clientId) return res.json([]);
+      const documents = await storage.getObsoleteDocumentsByClientId(clientId);
       res.json(documents);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch obsolete documents" });
@@ -209,10 +204,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/documents/:id", isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.id, 10); // <-- param corretto!
       const document = await storage.getDocument(id);
 
-      if (!document) {
+      if (!document || document.clientId !== req.user?.clientId) {
         return res.status(404).json({ message: "Document not found" });
       }
 
@@ -224,13 +219,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/documents", isAdmin, async (req, res) => {
     try {
-      const validatedData = insertDocumentSchema.parse(req.body);
+      // Verifica che l'utente abbia un clientId
+      if (!req.user?.clientId) {
+        return res.status(403).json({
+          message: "Accesso negato: l'utente non è associato a nessun client",
+        });
+      }
+
+      const validatedData = documentSchema.parse({
+        ...req.body,
+        clientId: req.user.clientId, // Forza il clientId dell'utente
+      });
+
       const document = await storage.createDocument(validatedData);
 
-      // Log the action
+      // Log dell'azione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "upload",
           documentId: document.legacyId,
           details: { message: `Document created: ${document.title}` },
@@ -239,30 +245,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.status(201).json(document);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Invalid document data", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to create document" });
+      console.error("Error creating document:", error);
+      res.status(500).json({ message: "Error creating document" });
     }
   });
 
-  app.put("/api/documents/:id", isAdmin, async (req, res) => {
+  app.put("/api/documents/:legacyId", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const validatedData = insertDocumentSchema.partial().parse(req.body);
+      const id = parseInt(req.params.legacyId, 10);
 
-      const document = await storage.updateDocument(id, validatedData);
-
-      if (!document) {
+      // Verifica che il documento esista e appartenga al client dell'admin
+      const existingDoc = await storage.getDocument(id);
+      if (!existingDoc) {
         return res.status(404).json({ message: "Document not found" });
       }
 
-      // Log the action
+      if (existingDoc.clientId !== req.user?.clientId) {
+        return res.status(403).json({
+          message:
+            "Accesso negato: non puoi modificare documenti di altri client",
+        });
+      }
+
+      const validatedData = documentSchema.partial().parse({
+        ...req.body,
+        clientId: req.user.clientId, // Mantieni il clientId originale
+      });
+
+      const document = await storage.updateDocument(id, validatedData);
+
+      // Log dell'azione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "update",
           documentId: document.legacyId,
           details: { message: `Document updated: ${document.title}` },
@@ -271,49 +286,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(document);
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Invalid document data", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to update document" });
+      console.error("Error updating document:", error);
+      res.status(500).json({ message: "Error updating document" });
     }
   });
 
-  app.delete("/api/documents/:id", isAdmin, async (req, res) => {
+  app.delete("/api/documents/:legacyId", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const document = await storage.getDocument(id);
+      const id = parseInt(req.params.legacyId, 10);
 
-      if (!document) {
+      // Verifica che il documento esista e appartenga al client dell'admin
+      const existingDoc = await storage.getDocument(id);
+      if (!existingDoc) {
         return res.status(404).json({ message: "Document not found" });
+      }
+
+      if (existingDoc.clientId !== req.user?.clientId) {
+        return res.status(403).json({
+          message:
+            "Accesso negato: non puoi eliminare documenti di altri client",
+        });
       }
 
       await storage.markDocumentObsolete(id);
 
-      // Log the action
+      // Log dell'azione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "delete",
           documentId: id,
           details: {
-            message: `Document marked as obsolete: ${document.title}`,
+            message: `Document marked as obsolete: ${existingDoc.title}`,
           },
         });
       }
 
       res.json({ message: "Document marked as obsolete" });
     } catch (error) {
-      res.status(500).json({ message: "Failed to mark document as obsolete" });
+      console.error("Error marking document as obsolete:", error);
+      res.status(500).json({ message: "Error marking document as obsolete" });
     }
   });
 
   // Users API (admin only)
   app.get("/api/users", isAdmin, async (req, res) => {
     try {
-      const users = await storage.getAllUsers();
+      const clientId = req.user?.clientId;
+      if (!clientId) {
+        return res.json([]); // Admin senza clientId non vede nulla
+      }
 
+      const users = await storage.getUsersByClientId(clientId);
       // Remove passwords from the response
       const safeUsers = users.map((user) => {
         const { password, ...userWithoutPassword } = user;
@@ -329,7 +353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint per creare un nuovo utente (solo admin)
   app.post("/api/users", isAdmin, async (req, res) => {
     try {
-      const { email, password, role, clientId } = req.body;
+      const { email, password, role } = req.body;
 
       // Validazione dei dati
       if (!email || !password) {
@@ -346,50 +370,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .json({ message: "Utente con questa email già registrato" });
       }
 
-      // Usa il ruolo specificato o "viewer" come default
-      const userRole =
-        role && ["admin", "viewer"].includes(role) ? role : "viewer";
+      // Se stiamo creando un admin, il clientId DEVE essere null
+      if (role === "admin") {
+        const hashedPassword = await hashPassword(password);
+        const newUser = await storage.createUser({
+          email,
+          password: hashedPassword,
+          role: "admin",
+          clientId: null, // Forziamo null per i nuovi admin
+          lastLogin: null,
+          sessionExpiry: null,
+        });
 
-      // Se è specificato un clientId, verifica che esista
-      if (clientId) {
-        const client = await storage.getClient(clientId);
-        if (!client) {
-          return res.status(400).json({ message: "Client non trovato" });
+        // Log della creazione admin
+        if (req.user && req.user.legacyId) {
+          await storage.createLog({
+            userId: req.user.legacyId,
+            action: "user-creation",
+            details: {
+              message: `Nuovo admin creato: ${email}`,
+              timestamp: new Date().toISOString(),
+              createdUserId: newUser.legacyId,
+            },
+          });
         }
+
+        const { password: _, ...safeUser } = newUser;
+        return res.status(201).json(safeUser);
       }
 
-      // Hash della password
-      const hashedPassword = await hashPassword(password);
+      // Per i viewer, usiamo il clientId dell'admin che li crea
+      const adminClientId = req.user?.clientId;
+      if (!adminClientId) {
+        return res
+          .status(400)
+          .json({ message: "Admin non associato a nessun client" });
+      }
 
-      // Crea il nuovo utente
+      const hashedPassword = await hashPassword(password);
       const newUser = await storage.createUser({
         email,
         password: hashedPassword,
-        role: userRole,
-        clientId: clientId || null,
+        role: "viewer",
+        clientId: adminClientId,
         lastLogin: null,
         sessionExpiry: null,
       });
 
-      // Log della creazione utente
-      if (req.user && req.user.id) {
+      // Log della creazione viewer
+      if (req.user && req.user.legacyId) {
         await storage.createLog({
-          userId: req.user.id, // L'admin che ha creato l'utente
+          userId: req.user.legacyId,
           action: "user-creation",
           details: {
-            message:
-              `Nuovo utente creato: ${email} con ruolo ${userRole}` +
-              (clientId ? ` e associato al client ${clientId}` : ""),
+            message: `Nuovo viewer creato: ${email} per il client ${adminClientId}`,
             timestamp: new Date().toISOString(),
-            createdUserId: newUser.id,
-            clientId: clientId || null,
+            createdUserId: newUser.legacyId,
+            clientId: adminClientId,
           },
         });
       }
 
-      // Rimuovi la password dalla risposta
       const { password: _, ...safeUser } = newUser;
-
       res.status(201).json(safeUser);
     } catch (error) {
       console.error("User creation error:", error);
@@ -399,28 +441,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/users/:id/role", isAdmin, async (req, res) => {
+  app.patch("/api/users/:legacyId/role", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const userId = parseInt(req.params.legacyId, 10);
       const { role } = req.body;
 
-      if (role !== "admin" && role !== "viewer") {
-        return res
-          .status(400)
-          .json({ message: "Invalid role. Must be 'admin' or 'viewer'" });
+      if (!["admin", "viewer"].includes(role)) {
+        return res.status(400).json({ message: "Ruolo non valido" });
       }
 
-      const user = await storage.updateUserRole(id, role);
-
-      if (!user) {
+      // Aggiorna il ruolo usando la funzione storage (che usa legacyId come chiave)
+      const updatedUser = await storage.updateUserRole(userId, role);
+      if (!updatedUser) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      const { password, ...userWithoutPassword } = user;
+      // Log dell'operazione (opzionale)
+      if (req.user) {
+        await storage.createLog({
+          userId: req.user.legacyId,
+          action: "user-role-change",
+          details: {
+            message: `Ruolo utente ${userId} cambiato in ${role}`,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
 
+      // Rimuovi password dalla risposta
+      const { password, ...userWithoutPassword } = updatedUser;
       res.json(userWithoutPassword);
     } catch (error) {
-      res.status(500).json({ message: "Failed to update user role" });
+      console.error("Error updating user role:", error);
+      res
+        .status(500)
+        .json({ message: "Impossibile aggiornare il ruolo utente" });
     }
   });
 
@@ -449,12 +504,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Verifica che l'utente sia autenticato e che req.user esista
-      if (!req.user || !req.user.id) {
+      if (!req.user || !req.user.legacyId) {
         return res.status(401).json({ message: "Utente non autenticato" });
       }
 
       // Ottieni l'utente dal database
-      const user = await storage.getUser(req.user.id);
+      const user = await storage.getUser(req.user.legacyId);
       if (!user) {
         return res.status(404).json({ message: "Utente non trovato" });
       }
@@ -477,9 +532,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const hashedPassword = await hashPassword(newPassword);
 
       // Aggiorna la password nel database
-      console.log(`Aggiornamento password per utente ${user.id}`);
+      console.log(`Aggiornamento password per utente ${user.legacyId}`);
       const updatedUser = await storage.updateUserPassword(
-        user.id,
+        user.legacyId,
         hashedPassword
       );
 
@@ -491,7 +546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Log dell'operazione
       await storage.createLog({
-        userId: user.id,
+        userId: user.legacyId,
         action: "password-change",
         details: {
           message: "Password modificata con successo",
@@ -513,7 +568,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Audit logs API (admin only)
   app.get("/api/logs", isAdmin, async (req, res) => {
     try {
-      const logs = await storage.getAllLogs();
+      const clientId = req.user?.clientId;
+      if (!clientId) {
+        return res.json([]); // Admin senza clientId non vede nulla
+      }
+
+      const logs = await storage.getLogsByClientId(clientId);
       res.json(logs);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch audit logs" });
@@ -541,7 +601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Start sync process (non-blocking) con l'ID estratto
       if (req.user) {
-        syncWithGoogleDrive(folderId, req.user.id).catch((error) =>
+        syncWithGoogleDrive(folderId, req.user.legacyId).catch((error) =>
           console.error("Sync error:", error)
         );
       }
@@ -555,7 +615,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Client API (admin only)
   app.get("/api/clients", isAdmin, async (req, res) => {
     try {
-      const clients = await storage.getAllClients();
+      if (!req.user?.legacyId) {
+        return res.status(401).json({ message: "Utente non autenticato" });
+      }
+
+      const clients = await storage.getClientsByAdminId(req.user.legacyId);
       res.json(clients);
     } catch (error) {
       res.status(500).json({ message: "Impossibile recuperare i client" });
@@ -564,9 +628,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/clients/:id", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
-      const client = await storage.getClient(id);
+      const id = parseInt(req.params.legacyId, 10);
 
+      // Verifica che l'admin abbia accesso a questo cliente
+      if (!req.user?.legacyId) {
+        return res.status(401).json({ message: "Utente non autenticato" });
+      }
+
+      const admin = await storage.getUser(req.user.legacyId);
+      if (!admin) {
+        return res.status(401).json({ message: "Admin non trovato" });
+      }
+
+      // Se l'admin non ha clientId o ha un clientId diverso, accesso negato
+      if (!admin.clientId || admin.clientId !== id) {
+        return res
+          .status(403)
+          .json({ message: "Accesso negato a questo cliente" });
+      }
+
+      const client = await storage.getClient(id);
       if (!client) {
         return res.status(404).json({ message: "Client non trovato" });
       }
@@ -579,14 +660,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/clients", isAdmin, async (req, res) => {
     try {
+      console.log("📥 [API] Richiesta creazione client ricevuta:", req.body);
+
+      // Verifica che l'admin non abbia già un clientId
+      if (req.user?.clientId) {
+        return res.status(400).json({
+          message: "Questo admin è già associato a un cliente",
+        });
+      }
+
       // Valida i dati in input
       const inputData = req.body;
+      console.log("Dati input validati:", inputData);
 
       // Estrai l'ID della cartella dall'URL o dall'ID fornito
       const driveFolderId = extractFolderIdFromUrl(inputData.driveFolderId);
+      console.log("DriveFolderId estratto:", driveFolderId);
 
       // Se l'ID non è valido, restituisci un errore
       if (!driveFolderId) {
+        console.error("❌ DriveFolderId non valido:", inputData.driveFolderId);
         return res.status(400).json({
           message: "L'URL o l'ID della cartella Google Drive non è valido",
           errors: [{ path: ["driveFolderId"], message: "URL o ID non valido" }],
@@ -598,36 +691,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...inputData,
         driveFolderId: driveFolderId,
       });
+      console.log("✅ Dati validati:", validatedData);
 
       const client = await storage.createClient(validatedData);
+      console.log("✅ Client creato con successo:", client);
 
-      // Log the action
+      // Associa l'admin al nuovo cliente
+      if (req.user?.legacyId) {
+        await storage.updateUserClient(req.user.legacyId, client.legacyId);
+        console.log(
+          "✅ Admin associato al client:",
+          req.user.legacyId,
+          client.legacyId
+        );
+      }
+
+      // Log dell'azione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "client-creation",
           details: {
             message: `Client creato: ${client.name}`,
             folderId: driveFolderId,
             timestamp: new Date().toISOString(),
+            clientId: client.legacyId,
           },
         });
       }
 
       res.status(201).json(client);
     } catch (error) {
+      console.error("❌ Errore nella creazione del client:", error);
       if (error instanceof z.ZodError) {
-        return res
-          .status(400)
-          .json({ message: "Dati client non validi", errors: error.errors });
+        console.error("Errore di validazione:", error.errors);
+        return res.status(400).json({
+          message: "Dati client non validi",
+          errors: error.errors,
+        });
       }
-      res.status(500).json({ message: "Impossibile creare il client" });
+      res.status(500).json({
+        message: "Impossibile creare il client",
+        error: error instanceof Error ? error.message : "Errore sconosciuto",
+      });
     }
   });
 
   app.put("/api/clients/:id", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
+
+      // Verifica che l'admin abbia accesso a questo cliente
+      if (!req.user?.legacyId) {
+        return res.status(401).json({ message: "Utente non autenticato" });
+      }
+
+      const admin = await storage.getUser(req.user.legacyId);
+      if (!admin) {
+        return res.status(401).json({ message: "Admin non trovato" });
+      }
+
+      // Se l'admin non ha clientId o ha un clientId diverso, accesso negato
+      if (!admin.clientId || admin.clientId !== id) {
+        return res
+          .status(403)
+          .json({ message: "Accesso negato a questo cliente" });
+      }
+
       const inputData = req.body;
 
       // Se c'è un driveFolderId, estrai l'ID dall'URL o dall'ID fornito
@@ -649,7 +779,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Valida i dati in input
-      const validatedData = insertClientSchema.partial().parse(inputData);
+      const validatedData = InsertClient.partial().parse(inputData);
 
       const client = await storage.updateClient(id, validatedData);
 
@@ -660,7 +790,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log the action
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "client-update",
           details: {
             message: `Client aggiornato: ${client.name}`,
@@ -681,10 +811,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Endpoint per assegnare un client a un utente (solo admin)
   app.patch("/api/users/:id/client", isAdmin, async (req, res) => {
     try {
-      const userId = parseInt(req.params.id, 10);
+      const userId = parseInt(req.params.legacyId, 10);
       const { clientId } = req.body;
 
       // Verifica se l'utente esiste
@@ -711,7 +840,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "user-client-assignment",
           details: {
             message:
@@ -811,12 +940,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         usageLimit: usageLimit || 1,
         expiresAt: expiresAt ? new Date(expiresAt) : null,
         isActive: isActive !== undefined ? isActive : true,
-        createdBy: req.user?.id || 0, // Usa 0 come fallback se req.user è undefined
+        createdBy: req.user?.legacyId || 0, // Usa 0 come fallback se req.user è undefined
       });
 
       // Registra la creazione nel log
       await storage.createLog({
-        userId: req.user?.id || 0,
+        userId: req.user?.legacyId || 0,
         action: "company_code_created",
         details: {
           message: "Company code created",
@@ -838,7 +967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // PATCH - Aggiorna un codice aziendale esistente (solo admin)
   app.patch("/api/company-codes/:id", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.legacyId);
       const { code, role, usageLimit, expiresAt, isActive } = req.body;
 
       // Verifica se il codice esiste
@@ -852,7 +981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Se si sta aggiornando il codice, verifica che non ci siano duplicati
       if (code && code !== existingCode.code) {
         const duplicateCode = await storage.getCompanyCodeByCode(code);
-        if (duplicateCode && duplicateCode.id !== id) {
+        if (duplicateCode && duplicateCode.legacyId !== id) {
           return res
             .status(400)
             .json({ message: "Questo codice aziendale esiste già" });
@@ -873,7 +1002,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Registra l'aggiornamento nel log
       await storage.createLog({
-        userId: req.user?.id || 0,
+        userId: req.user?.legacyId || 0,
         action: "company_code_updated",
         details: {
           message: "Company code updated",
@@ -895,7 +1024,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // DELETE - Elimina un codice aziendale (solo admin)
   app.delete("/api/company-codes/:id", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
+      const id = parseInt(req.params.legacyId);
 
       // Verifica se il codice esiste
       const existingCode = await storage.getCompanyCode(id);
@@ -911,7 +1040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (deleted) {
         // Registra l'eliminazione nel log
         await storage.createLog({
-          userId: req.user?.id || 0,
+          userId: req.user?.legacyId || 0,
           action: "company_code_deleted",
           details: {
             message: "Company code deleted",
@@ -938,7 +1067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint per crittografare e verificare l'integrità di un documento
   app.post("/api/documents/:id/encrypt", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
       const { filePath } = req.body;
 
       if (!filePath) {
@@ -959,7 +1088,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione di crittografia
       if (req.user && updatedDocument && updatedDocument.encryptedCachePath) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "security",
           documentId: id,
           details: {
@@ -984,7 +1113,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint per verificare l'integrità di un documento
   app.get("/api/documents/:id/verify", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
 
       const document = await storage.getDocument(id);
       if (!document) {
@@ -1004,7 +1133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione di verifica
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "security",
           documentId: id,
           details: {
@@ -1040,7 +1169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint per generare un link sicuro di condivisione documento
   app.post("/api/documents/:id/share", isAuthenticated, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
       const { action, expiryHours } = req.body;
 
       if (!action || !["view", "download"].includes(action)) {
@@ -1058,12 +1187,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const expiryMs = (expiryHours || 24) * 60 * 60 * 1000;
 
       // Verifica se l'utente esiste prima di generare il link
-      if (!req.user || !req.user.id) {
+      if (!req.user || !req.user.legacyId) {
         return res.status(401).json({ message: "Utente non autenticato" });
       }
 
       // Genera link sicuro
-      const secureLink = generateSecureLink(id, req.user.id, action, expiryMs);
+      const secureLink = generateSecureLink(
+        id,
+        req.user.legacyId,
+        action,
+        expiryMs
+      );
 
       const absoluteUrl = `${req.protocol}://${req.get("host")}${secureLink}`;
 
@@ -1178,7 +1312,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Genera un link sicuro per il reset della password
       const resetLink = generateSecureLink(
         null,
-        user.id,
+        user.legacyId,
         "reset-password",
         1 * 60 * 60 * 1000 // 1 ora di validità
       );
@@ -1188,7 +1322,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Log del tentativo di reset
       await storage.createLog({
-        userId: user.id,
+        userId: user.legacyId,
         action: "password-reset-request",
         details: {
           message: "Richiesta reset password",
@@ -1247,7 +1381,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({
         success: true,
         data: {
-          userId: user.id,
+          userId: user.legacyId,
           action: linkData.action,
         },
       });
@@ -1350,7 +1484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione di backup
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "backup-create",
           details: {
             message: "Backup del sistema creato",
@@ -1386,7 +1520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione di ripristino (prima del ripristino effettivo)
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "backup-restore-start",
           details: {
             message: "Tentativo di ripristino da backup",
@@ -1409,7 +1543,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Nota: questo log potrebbe non apparire se il ripristino ha cancellato i log precedenti
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "backup-restore-complete",
           details: {
             message: "Ripristino da backup completato",
@@ -1496,7 +1630,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint per impostare i giorni di preavviso personalizzati per un documento
   app.post("/api/documents/:id/warning-days", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
       const { warningDays } = req.body;
 
       if (typeof warningDays !== "number" || warningDays < 1) {
@@ -1515,7 +1649,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log dell'operazione
       if (req.user) {
         await storage.createLog({
-          userId: req.user.id,
+          userId: req.user.legacyId,
           action: "warning-update",
           documentId: id,
           details: {
@@ -1541,18 +1675,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/auth-status", sessionTimeoutMiddleware, async (req, res) => {
     try {
       // Informazioni di debug per diagnosticare problemi di autenticazione
-      const sessionActive = req.session?.id ? true : false;
+      const sessionActive = req.session?.legacyId ? true : false;
       const authenticated = req.isAuthenticated();
       const userInfo = req.user
         ? {
-            id: req.user.id,
+            id: req.user.legacyId,
             email: req.user.email,
             role: req.user.role,
             sessionExpiry: req.user.sessionExpiry,
           }
         : null;
       const sessionInfo = {
-        id: req.session?.id || null,
+        id: req.session?.legacyId || null,
         cookie: req.session?.cookie
           ? {
               maxAge: req.session.cookie.maxAge,
@@ -1578,7 +1712,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Endpoint di debug per verificare lo stato del client e forzare una sincronizzazione
   app.get("/api/debug/client/:id", isAdmin, async (req, res) => {
     try {
-      const id = parseInt(req.params.id, 10);
+      const id = parseInt(req.params.legacyId, 10);
       const client = await storage.getClient(id);
 
       if (!client) {
@@ -1587,7 +1721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Forza una sincronizzazione
       if (req.user) {
-        await syncWithGoogleDrive(client.driveFolderId, req.user.id);
+        await syncWithGoogleDrive(client.driveFolderId, req.user.legacyId);
       }
 
       res.json({

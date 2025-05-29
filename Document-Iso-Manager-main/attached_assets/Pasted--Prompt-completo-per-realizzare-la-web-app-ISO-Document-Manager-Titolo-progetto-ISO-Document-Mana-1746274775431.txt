@@ -1,14 +1,11 @@
 🎯 Prompt completo per realizzare la web app ISO Document Manager
 Titolo progetto: ISO Document Manager su Google Drive
 Tecnologie: Node.js (Express) + React + Tailwind CSS + MongoDB
-Hosting target: Replit (ma deve essere portabile su VPS o container)
 
 🔐 Autenticazione & Sicurezza
 Login utente con:
 
 Email + Password
-
-Autenticazione a due fattori (OTP via email o app TOTP tipo Google Authenticator)
 
 Accesso riservato a utenti registrati, con almeno 2 ruoli: admin (modifica/gestione), viewer (consultazione sola lettura)
 
@@ -36,11 +33,11 @@ Costruzione JSON con struttura navigabile
 📑 Home Page – Indice dinamico
 Frontend React che visualizza una tabella o struttura ad albero:
 
-Ordinamento automatico per punto norma (1, 1.1, 1.2.1…)
+Ordinamento automatico in ordine crescente per punto norma (1, 1.1, 1.2.1…)
 
 Solo l’ultima revisione per nomefile mostrata
 
-Tutti i file vecchi con revisione inferiore vengono spostati in /OLD
+Tutti i file vecchi con revisione inferiore vengono spostati in /obsoleti
 
 Ogni riga dell’indice mostra:
 

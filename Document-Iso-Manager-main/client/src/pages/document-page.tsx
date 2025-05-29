@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   AlertCircle,
   CheckCircle,
+  RefreshCw,
 } from "lucide-react";
 import { apiRequest, queryClient } from "../lib/queryClient";
 import { format } from "date-fns";
@@ -39,25 +40,38 @@ export default function DocumentPage() {
   const { user } = useAuth();
   const { toast } = useToast();
 
+  console.log("📄 DocumentPage - Parametri:", params);
+  console.log("👤 User:", user);
+
   const { data: document, isLoading } = useQuery<Document>({
-    queryKey: [`/api/documents/${params?.id}`],
+    queryKey: [`/api/documents/${params?.legacyId}`],
     onSuccess: (data) => {
+      console.log("✅ Documento caricato:", data);
       setTitle(data.title);
       setPath(data.path);
     },
+    onError: (error) => {
+      console.error("❌ Errore caricamento documento:", error);
+    },
   });
+
+  console.log("🔄 Stato caricamento:", { isLoading, hasDocument: !!document });
 
   const updateMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("PATCH", `/api/documents/${params?.id}`, {
-        title,
-        path,
-      });
+      const res = await apiRequest(
+        "PATCH",
+        `/api/documents/${params?.legacyId}`,
+        {
+          title,
+          path,
+        }
+      );
       return await res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: [`/api/documents/${params?.id}`],
+        queryKey: [`/api/documents/${params?.legacyId}`],
       });
       queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
       setEditMode(false);
@@ -77,7 +91,10 @@ export default function DocumentPage() {
 
   const archivedMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/documents/${params?.id}`);
+      const res = await apiRequest(
+        "DELETE",
+        `/api/documents/${params?.legacyId}`
+      );
       return await res.json();
     },
     onSuccess: () => {
@@ -96,6 +113,34 @@ export default function DocumentPage() {
       });
     },
   });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sync", {
+        userId: user?.legacyId,
+      });
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Sincronizzazione avviata",
+        description: "I documenti verranno sincronizzati in background",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Errore sincronizzazione",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSync = () => {
+    console.log("🔄 [PAGE] Avvio sincronizzazione manuale");
+    syncMutation.mutate();
+  };
 
   // Get status CSS class
   const getStatusClass = (status: string) => {
@@ -135,6 +180,28 @@ export default function DocumentPage() {
 
       <main className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-900 p-4 md:p-6">
         <div className="max-w-5xl mx-auto">
+          {user?.role === "admin" && (
+            <div className="mb-6 flex justify-end">
+              <Button
+                onClick={handleSync}
+                disabled={syncMutation.isPending}
+                className="flex items-center gap-2"
+              >
+                {syncMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Sincronizzazione in corso...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    Sincronizza Documenti
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="flex justify-center items-center h-64">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />

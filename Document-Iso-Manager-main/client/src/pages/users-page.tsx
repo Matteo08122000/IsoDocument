@@ -93,8 +93,14 @@ export default function UsersPage() {
 
   // Mutation per aggiornare il ruolo di un utente
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ userId, role }: { userId: number; role: string }) => {
-      const res = await apiRequest("PATCH", `/api/users/${userId}/role`, {
+    mutationFn: async ({
+      legacyId,
+      role,
+    }: {
+      legacyId: number;
+      role: string;
+    }) => {
+      const res = await apiRequest("PATCH", `/api/users/${legacyId}/role`, {
         role,
       });
       return await res.json();
@@ -140,8 +146,8 @@ export default function UsersPage() {
   });
 
   // Handle role change
-  const handleRoleChange = (userId: number, role: string) => {
-    updateRoleMutation.mutate({ userId, role });
+  const handleRoleChange = (legacyId: number, role: string) => {
+    updateRoleMutation.mutate({ legacyId, role });
   };
 
   // Handle new user form submission
@@ -325,7 +331,6 @@ export default function UsersPage() {
                         <TableHead className="w-[50px]">ID</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead className="w-[130px]">Ruolo</TableHead>
-                        <TableHead className="w-[130px]">2FA</TableHead>
                         <TableHead className="w-[180px]">
                           Data Registrazione
                         </TableHead>
@@ -334,8 +339,10 @@ export default function UsersPage() {
                     </TableHeader>
                     <TableBody>
                       {users.map((usr) => (
-                        <TableRow key={usr.id}>
-                          <TableCell className="font-mono">{usr.id}</TableCell>
+                        <TableRow key={usr.legacyId}>
+                          <TableCell className="font-mono">
+                            {usr.legacyId}
+                          </TableCell>
                           <TableCell>{usr.email}</TableCell>
                           <TableCell>
                             <Badge
@@ -345,12 +352,6 @@ export default function UsersPage() {
                               className="capitalize"
                             >
                               {usr.role}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className="w-fit">
-                              {/* Gestione 2FA futura */}
-                              Disabilitato
                             </Badge>
                           </TableCell>
                           <TableCell className="text-sm">
@@ -366,10 +367,10 @@ export default function UsersPage() {
                               <Select
                                 defaultValue={usr.role}
                                 onValueChange={(value) =>
-                                  handleRoleChange(usr.id, value)
+                                  handleRoleChange(usr.legacyId, value)
                                 }
                                 disabled={
-                                  usr.id === user?.id ||
+                                  usr.legacyId === user?.legacyId ||
                                   updateRoleMutation.isPending
                                 }
                               >

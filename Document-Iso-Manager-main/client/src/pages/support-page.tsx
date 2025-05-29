@@ -45,7 +45,7 @@ export default function SupportPage() {
         title: "Messaggio inviato",
         description:
           "Grazie per averci contattato. Ti risponderemo il prima possibile.",
-        duration: 5000,
+        duration: 2000,
       });
 
       // Reset del form
@@ -59,7 +59,7 @@ export default function SupportPage() {
         description:
           "Si è verificato un errore durante l'invio del messaggio. Riprova più tardi.",
         variant: "destructive",
-        duration: 5000,
+        duration: 2000,
       });
     } finally {
       setIsSubmitting(false);

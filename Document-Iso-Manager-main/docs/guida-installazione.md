@@ -29,17 +29,20 @@
 ### Tramite repository
 
 1. Clona il repository:
+
    ```bash
    git clone https://github.com/your-repo/iso-document-manager.git
    cd iso-document-manager
    ```
 
 2. Installa le dipendenze:
+
    ```bash
    npm install
    ```
 
 3. Configura le variabili d'ambiente copiando il file .env.example:
+
    ```bash
    cp .env.example .env.production
    ```
@@ -79,7 +82,7 @@ PORT=5000
 ENCRYPTION_KEY=your-32-character-encryption-key
 
 # Configurazione MongoDB
-MONGODB_URI=mongodb://username:password@host:port/database
+DB_URI=mongodb://username:password@host:port/database
 
 # Configurazione email
 SMTP_HOST=smtp.provider.com
@@ -105,7 +108,7 @@ Per configurare MongoDB:
 
 1. Crea un database dedicato per l'applicazione
 2. Crea un utente con privilegi adeguati
-3. Aggiorna MONGODB_URI nel file .env.production
+3. Aggiorna DB_URI nel file .env.production
 
 L'applicazione si occuperà di creare automaticamente le collezioni necessarie al primo avvio.
 
@@ -125,6 +128,7 @@ L'applicazione si occuperà di creare automaticamente le collezioni necessarie a
 ### Configurazione dell'integrazione
 
 1. Ottieni l'ID della cartella Google Drive che desideri sincronizzare
+
    - Puoi trovarlo nell'URL quando apri la cartella: `https://drive.google.com/drive/folders/YOUR_FOLDER_ID`
 
 2. Configura le variabili d'ambiente nel file .env.production:
