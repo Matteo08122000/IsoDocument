@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import * as dotenv from "dotenv";
 import cors from "cors";
 import { mongoStorage } from "./mongo-storage";
+import { logger } from "./logger";
 
 // ✅ Carica .env PRIMA DI QUALUNQUE ALTRO IMPORT
 if (process.env.NODE_ENV === "production") {
@@ -15,7 +16,7 @@ const app = express();
 // ✅ CORS config
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     credentials: true,
   })
 );
@@ -26,7 +27,7 @@ app.use(express.urlencoded({ extended: false }));
 if (process.env.NODE_ENV === "production") {
   const { setupSecurity } = await import("./security");
   setupSecurity(app);
-  console.log("🛡️  Misure di sicurezza per la produzione attivate");
+  logger.info("🛡️  Misure di sicurezza per la produzione attivate");
 }
 
 // ✅ Logging API
@@ -53,7 +54,7 @@ app.use((req, res, next) => {
         logLine = logLine.slice(0, 79) + "…";
       }
 
-      console.log(logLine);
+      logger.info(logLine);
     }
   });
 
@@ -63,41 +64,38 @@ app.use((req, res, next) => {
 async function startServer() {
   try {
     await mongoStorage.connect();
-    console.log("Connected to MongoDB");
+    logger.info("Connected to MongoDB");
 
     // Correggi i documenti esistenti
     await mongoStorage.fixDocumentsClientId();
 
-    const app = express();
-    // ... rest of the server setup code ...
+    // ✅ IMPORTA ORA registerRoutes DOPO dotenv.config()
+    const { registerRoutes } = await import("./routes");
+    const server = await registerRoutes(app);
+
+    app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+      const status = err.status || err.statusCode || 500;
+      const message = err.message || "Internal Server Error";
+
+      res.status(status).json({ message });
+      throw err;
+    });
+
+    const port = process.env.PORT ? Number(process.env.PORT) : 5000;
+    server.listen(
+      {
+        port,
+        host: "0.0.0.0",
+        reusePort: true,
+      },
+      () => {
+        logger.info(`🚀 Backend in ascolto su http://localhost:${port}`);
+      }
+    );
   } catch (error) {
-    console.error("Failed to start server:", error);
+    logger.error("Failed to start server:", error);
     process.exit(1);
   }
 }
 
-(async () => {
-  // ✅ IMPORTA ORA registerRoutes DOPO dotenv.config()
-  const { registerRoutes } = await import("./routes");
-  const server = await registerRoutes(app);
-
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    res.status(status).json({ message });
-    throw err;
-  });
-
-  const port = 5000;
-  server.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      console.log(`🚀 Backend in ascolto su http://localhost:${port}`);
-    }
-  );
-})();
+startServer();
